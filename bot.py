@@ -713,12 +713,14 @@ def apply_plan(user_id, plan, extend=True):
     seconds = PLAN_SECONDS[plan]
     current = sub_expiry(user_id) if extend else 0
     base = max(now, current)
-    SUBS[user_id] = {
-        "plan": plan,
-        "exp": base + seconds,
-        "started": now,
-        "updated": now,
-    }
+    entry = SUBS.get(user_id)
+    if entry is None:
+        entry = {"token": gen_token(), "created": now}
+        SUBS[user_id] = entry
+    # keep the token/created fields — only the plan part changes
+    entry.update({"plan": plan, "exp": base + seconds, "started": now, "updated": now})
+    if not entry.get("token"):
+        entry["token"] = gen_token()
     save_subs()
     print(f"[admin] {user_id} -> {plan}, exp {SUBS[user_id]['exp']}", flush=True)
     return SUBS[user_id]["exp"]
