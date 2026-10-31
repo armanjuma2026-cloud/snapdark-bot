@@ -1060,6 +1060,46 @@ def handle_message(msg):
             f"Subscription & support: {ADMIN_USERNAME}",
             back_keyboard(),
         )
+    elif is_admin(user_id) and re.fullmatch(r"SK-[A-Z0-9]{4}-[A-Z0-9]{4}", text.strip().upper()):
+        wanted = text.strip().strip("<>,;\n").upper()
+        print(f"[tok-auto] {user_id} typed {wanted}", flush=True)
+        target = next(
+            (uid for uid, e in SUBS.items() if (e.get("token") or "").upper() == wanted),
+            None,
+        )
+        if target is None:
+            send(
+                chat_id,
+                f"⚠️ Token <code>{html.escape(wanted)}</code> does not match any user.\n\n"
+                "Make sure the user pressed /start first, then check 📋 List tokens.",
+                tokens_keyboard(),
+            )
+        else:
+            PENDING_ACCEPT[user_id] = target
+            exp = sub_expiry(target)
+            status = (
+                "✅ active until " + time.strftime("%Y-%m-%d %H:%M", time.localtime(exp))
+                if exp > time.time()
+                else "⛔️ no active subscription"
+            )
+            nm = SUBS[target].get("name") or "-"
+            send(
+                chat_id,
+                "🔎 <b>Token found</b>\n\n"
+                f"👤 Name: {html.escape(nm)}\n"
+                f"🪪 ID: <code>{target}</code>\n"
+                f"🔑 Token: <code>{wanted}</code>\n"
+                f"📊 Status: {status}\n\n"
+                "Accept this user?",
+                {
+                    "inline_keyboard": [[
+                        {"text": "✅ Accept", "callback_data": "adm:tok:ok"},
+                        {"text": "❌ Reject", "callback_data": "adm:tok:no"},
+                    ]]
+                },
+            )
+        return
+
     elif text.startswith("/ping"):
         send(chat_id, "🏓 Pong — bot online.", back_keyboard())
     elif text.startswith("/version"):
