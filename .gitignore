@@ -1,0 +1,10 @@
+# secrets
+token.txt
+.env
+
+# runtime state
+subs.json
+content.json
+*.log
+__pycache__/
+*.pyc
