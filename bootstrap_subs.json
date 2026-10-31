@@ -1,0 +1,26 @@
+{
+  "5576391405": {
+    "token": "SK-53E4-RCP7",
+    "exp": 1825005097.3629494,
+    "plan": "12m",
+    "created": 1793424175.5249298,
+    "name": "SnapDark Tunnel @snapdark_decoder",
+    "started": 1793469097.3629494,
+    "updated": 1793469097.3629494
+  },
+  "9005063304": {
+    "token": "SK-CSLM-BYET",
+    "exp": 1825004541.3078177,
+    "plan": "12m",
+    "created": 1793433961.5302804,
+    "name": "Arman",
+    "started": 1793468541.3078177,
+    "updated": 1793468541.3078177
+  },
+  "8007937197": {
+    "token": "SK-JEVZ-N73K",
+    "exp": 0,
+    "plan": null,
+    "created": 1793441915.9139647
+  }
+}

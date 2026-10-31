@@ -97,6 +97,18 @@ If the live run fails, the last cached JSON is sent with a warning. Subscription
 | `admins.json` | extra admin ids | no |
 | `*.log` | logs | no |
 
+## Cloud deploy — fps.ms (free Telegram-bot hosting)
+1. fps.ms -> Deploy Container -> Python container.
+2. Startup tab: entry file `app.py`, Git Repo Address `https://github.com/armanjera2026-cloud/snapdark-bot`, Auto Update ON -> Reinstall Server.
+3. Files tab: create `.env` with:
+   TELEGRAM_BOT_TOKEN=... (bot token)
+   SNAPDARK_OWNER_ID=5576391405
+   # optional, your fps.ms DDNS token:
+   FPS_MS_DDNS=...
+4. Console -> Start. Bot uses long polling (works on the free plan).
+Requirements: requirements.txt auto-installs (requests, pysocks, cryptography, pycryptodome).
+Decryptor apps that need the original APK bundle also need those .apks files uploaded via SFTP (paths inside the scripts, e.g. /storage/emulated/0/MT2/apks -> put them under /home/container instead by editing the script paths).
+
 ## Cloud deploy (runs without the phone)
 
 Dockerfile + Procfile are included; the bot also serves `GET /` on `$PORT` for health checks.

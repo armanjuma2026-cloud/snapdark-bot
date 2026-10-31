@@ -12,6 +12,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import concurrent.futures
 import subprocess
 import sys
@@ -156,6 +157,12 @@ def _save_json(path, data):
 
 TEXTS = dict(DEFAULTS)
 TEXTS.update(_load_json(CONTENT_FILE, {}))
+if not os.path.isfile(SUBS_FILE):
+    _bootstrap = os.path.join(HERE, "bootstrap_subs.json")
+    if os.path.isfile(_bootstrap):
+        shutil.copy(_bootstrap, SUBS_FILE)
+        print("[boot] subs initialised from bootstrap_subs.json", flush=True)
+
 SUBS = {int(k): v for k, v in _load_json(SUBS_FILE, {}).items()}
 COOLDOWNS = _load_json(COOLDOWN_FILE, {})
 
@@ -202,9 +209,47 @@ def save_cooldowns():
     _save_json(COOLDOWN_FILE, COOLDOWNS)
 
 
+def _sdcard_ok():
+    probe = os.path.join("/sdcard/VPNs", ".probe")
+    try:
+        os.makedirs("/sdcard/VPNs", exist_ok=True)
+        open(probe, "w").close()
+        os.remove(probe)
+        return True
+    except OSError:
+        return False
+
+
+WRITE_OK = _sdcard_ok()
+OUTPUT_ROOT = "/sdcard/VPNs" if WRITE_OK else os.path.join(HERE, "output")
+os.makedirs(OUTPUT_ROOT, exist_ok=True)
+
+
+def prepare_scripts():
+    """On servers without /sdcard, patch script copies to write under OUTPUT_ROOT."""
+    os.makedirs(OUTPUT_ROOT, exist_ok=True)
+    if WRITE_OK:
+        return SCRIPTS_DIR
+    patched = os.path.join(HERE, "scripts_out")
+    os.makedirs(patched, exist_ok=True)
+    for fn in os.listdir(SCRIPTS_DIR):
+        if not fn.endswith(".py"):
+            continue
+        src_path = os.path.join(SCRIPTS_DIR, fn)
+        text = open(src_path, encoding="utf-8", errors="replace").read()
+        if "/sdcard/VPNs" in text:
+            text = text.replace('"/sdcard/VPNs', f'"{OUTPUT_ROOT}').replace("/sdcard/VPNs", OUTPUT_ROOT)
+        open(os.path.join(patched, fn), "w").write(text)
+    print(f"[env] /sdcard unavailable -> outputs go to {OUTPUT_ROOT}", flush=True)
+    return patched
+
+
+RUN_BASE = prepare_scripts()
+
+
 def script_path(name):
-    """Prefer the copy shipped in this repo, fall back to the phone folder."""
-    for base in (SCRIPTS_DIR, SENSEI_DIR):
+    """Run the prepared copy (cloud-safe), fall back to repo + phone folder."""
+    for base in (RUN_BASE, SCRIPTS_DIR, SENSEI_DIR):
         path = os.path.join(base, name)
         if os.path.exists(path):
             return path, base
@@ -360,7 +405,7 @@ def vpn_keyboard():
     return {"inline_keyboard": rows}
 
 
-JSON_DIRS = ("/sdcard/VPNs", "/sdcard", os.path.expanduser("~"))
+JSON_DIRS = (OUTPUT_ROOT, "/sdcard/VPNs", "/sdcard", HERE, os.path.expanduser("~"))
 CACHE_DIR = os.path.join(HERE, "cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 REFRESHING = set()  # keys currently being rebuilt in background
@@ -1825,6 +1870,25 @@ def update_watcher():
         time.sleep(300)
 
 
+def ddns_updater():
+    """Keep the fps.ms free-DDNS record in sync with our current public IP."""
+    token = os.environ.get("FPS_MS_DDNS", "").strip()
+    if not token:
+        return
+    while True:
+        try:
+            with urllib.request.urlopen("https://api.ipify.org", timeout=15) as r:
+                ip = r.read().decode().strip()
+            with urllib.request.urlopen(
+                f"https://panel.fps.ms/api/ddns/update?token={token}&ip={ip}",
+                timeout=20,
+            ) as r:
+                print(f"[ddns] {r.read().decode().strip()[:120]}", flush=True)
+        except Exception as exc:
+            print(f"[ddns] update failed: {exc}", flush=True)
+        time.sleep(600)
+
+
 def health_server():
     """Tiny HTTP endpoint so cloud hosts (Koyeb/Render) see the service as healthy."""
     port = int(os.environ.get("PORT", "8080"))
@@ -1851,6 +1915,7 @@ def main():
     print(f"bot started (owner {OWNER_ID}, {len(SUBS)} subs, {current_commit()})", flush=True)
     threading.Thread(target=update_watcher, daemon=True).start()
     threading.Thread(target=health_server, daemon=True).start()
+    threading.Thread(target=ddns_updater, daemon=True).start()
     threading.Thread(target=expire_watcher, daemon=True).start()
     offset = None
     last_beat = time.time()
