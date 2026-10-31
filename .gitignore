@@ -12,3 +12,6 @@ __pycache__/
 # config
 admins.json
 prices.json
+
+# cooldowns
+cooldowns.json

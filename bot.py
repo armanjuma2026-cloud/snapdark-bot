@@ -25,6 +25,7 @@ CONTENT_FILE = os.path.join(HERE, "content.json")
 SUBS_FILE = os.path.join(HERE, "subs.json")
 ADMINS_FILE = os.path.join(HERE, "admins.json")
 PRICES_FILE = os.path.join(HERE, "prices.json")
+COOLDOWN_FILE = os.path.join(HERE, "cooldowns.json")
 
 # ---------------------------------------------------------------- config
 OWNER_ID = int(os.environ.get("SNAPDARK_OWNER_ID", "5576391405"))
@@ -47,7 +48,9 @@ PLANS = [
 PLAN_SECONDS = {key: secs for _, key, secs in PLANS}
 PLAN_NAME = {key: label.split(" ", 1)[1] for label, key, _ in PLANS}
 
+SCRIPTS_DIR = os.path.join(HERE, "scripts")
 SENSEI_DIR = "/storage/emulated/0/senseitunnel"
+COOLDOWN_SECONDS = 8 * 3600  # same VPN again only after 8 hours
 VPNS = [
     {
         "key": "apna",
@@ -139,6 +142,7 @@ def _save_json(path, data):
 TEXTS = dict(DEFAULTS)
 TEXTS.update(_load_json(CONTENT_FILE, {}))
 SUBS = {int(k): v for k, v in _load_json(SUBS_FILE, {}).items()}
+COOLDOWNS = _load_json(COOLDOWN_FILE, {})
 
 ADMINS = [int(x) for x in _load_json(ADMINS_FILE, [])]
 PRICES = _load_json(PRICES_FILE, {})
@@ -161,6 +165,32 @@ def save_admins():
 
 def save_prices():
     _save_json(PRICES_FILE, PRICES)
+
+
+def save_cooldowns():
+    _save_json(COOLDOWN_FILE, COOLDOWNS)
+
+
+def script_path(name):
+    """Prefer the copy shipped in this repo, fall back to the phone folder."""
+    for base in (SCRIPTS_DIR, SENSEI_DIR):
+        path = os.path.join(base, name)
+        if os.path.exists(path):
+            return path, base
+    return None, None
+
+
+def cooldown_left(user_id, key):
+    last = COOLDOWNS.get(str(user_id), {}).get(key)
+    if not last:
+        return 0
+    left = COOLDOWN_SECONDS - (time.time() - last)
+    return int(max(0, left))
+
+
+def mark_cooldown(user_id, key):
+    COOLDOWNS.setdefault(str(user_id), {})[key] = time.time()
+    save_cooldowns()
 
 
 _CONTENT_MTIME = 0.0
@@ -275,18 +305,29 @@ def build_vpn(chat_id, key):
     if chat_id in RUNNING:
         send(chat_id, "⏳ Still building the previous config, please wait.")
         return
+    left = cooldown_left(chat_id, key)
+    if left > 0:
+        send(
+            chat_id,
+            f"⏳ <b>{spec['name']}</b> is on cooldown.\n\n"
+            f"Available again in <b>{fmt_left(left)}</b>.\n"
+            "You can request any other app right now.",
+            vpn_keyboard(),
+        )
+        print(f"[cool] {chat_id} {key} left={left}s", flush=True)
+        return
     RUNNING.add(chat_id)
     try:
         send(chat_id, f"⏳ Building <b>{spec['name']}</b> live config…\nThis can take up to a minute.")
-        script = os.path.join(SENSEI_DIR, spec["script"])
+        script, base = script_path(spec["script"])
         started = time.time() - 2
         out = spec["out"]
         ok = False
-        if os.path.exists(script):
+        if script:
             try:
                 proc = subprocess.run(
                     [sys.executable, script],
-                    cwd=SENSEI_DIR,
+                    cwd=base,
                     capture_output=True,
                     timeout=240,
                 )
@@ -299,16 +340,20 @@ def build_vpn(chat_id, key):
             print(f"[vpn] {key} script missing: {script}", flush=True)
 
         fresh = os.path.exists(out) and os.path.getmtime(out) >= started
+        sent = None
         if fresh and ok:
             size = os.path.getsize(out)
-            send_document(
+            sent = send_document(
                 chat_id,
                 out,
                 f"✅ <b>{spec['name']}</b> live config\n"
-                f"🕒 {time.strftime('%Y-%m-%d %H:%M')}\n📦 {size/1024:.0f} KB",
+                f"🕒 {time.strftime('%Y-%m-%d %H:%M')}\n📦 {size/1024:.0f} KB\n"
+                f"⏳ Next refresh in 8h",
             )
+            if sent:
+                mark_cooldown(chat_id, key)
         elif os.path.exists(out):
-            send_document(
+            sent = send_document(
                 chat_id,
                 out,
                 f"⚠️ Live build failed — sending cached copy\n"
@@ -460,7 +505,12 @@ def admin_keyboard():
             {"text": "💰 Prices", "callback_data": "adm:prices"},
         ]
     )
-    rows.append([{"text": "👤 Admins", "callback_data": "adm:admins"}])
+    rows.append(
+        [
+            {"text": "👤 Admins", "callback_data": "adm:admins"},
+            {"text": "♻️ Cooldowns", "callback_data": "adm:cool"},
+        ]
+    )
     rows.append(
         [
             {"text": "👁 Preview Menu", "callback_data": "menu"},
@@ -670,6 +720,17 @@ def handle_message(msg):
             )
             return
         PENDING_SUB.pop(user_id, None)
+        if action == "cool_reset":
+            PENDING_SUB.pop(user_id, None)
+            cleared = len(COOLDOWNS.pop(str(target), {}) or {})
+            save_cooldowns()
+            print(f"[cool] {user_id} reset {target} ({cleared})", flush=True)
+            send(
+                chat_id,
+                f"♻️ Cooldowns reset for <b>{target}</b> ({cleared} entries cleared).",
+                admin_keyboard(),
+            )
+            return
         if action in ("admin_add", "admin_del"):
             if not is_owner(user_id):
                 send(chat_id, "⛔️ Only the owner can manage admins.", admin_keyboard())
@@ -798,6 +859,13 @@ def handle_message(msg):
         )
     elif text.startswith("/ping"):
         send(chat_id, "🏓 Pong — bot online.", back_keyboard())
+    elif text.startswith("/version"):
+        send(
+            chat_id,
+            f"🤖 snapdark-bot\ncommit: <code>{current_commit()}</code>\n"
+            f"apps: {len(VPNS)}\ncooldown: {COOLDOWN_SECONDS // 3600}h per app",
+            back_keyboard(),
+        )
     else:
         print(f"[msg] {chat_id} {name}: {text[:120]}", flush=True)
         if has_access(user_id):
@@ -974,16 +1042,24 @@ def handle_callback(cb):
             )
             return
 
-        if data == "adm:admins":
-            if not is_owner(user_id):
-                edit(chat_id, message_id, "⛔️ Only the owner can manage admins.", admin_keyboard())
-                return
-            edit(chat_id, message_id, ADMINS_PANEL, admins_keyboard())
+        if data == "adm:cool":
+            PENDING_SUB[user_id] = {"action": "cool_reset"}
+            edit(
+                chat_id,
+                message_id,
+                "♻️ Send the <b>user id</b> to reset all of that user's config cooldowns.\n\n"
+                "Send /cancel to abort.",
+            )
             return
 
         if data == "adm:adm:list":
+            if not is_owner(user_id):
+                edit(chat_id, message_id, "⛔️ Only the owner can manage admins.", admin_keyboard())
+                return
             body = "👤 <b>Admins</b>\n\n" + "\n".join(
-                [f"• <code>{OWNER_ID}</code> — owner"] + [f"• <code>{a}</code>" for a in ADMINS]
+                [f"• <code>{OWNER_ID}</code> — owner"]
+                + [f"• <code>{a}</code>" for a in ADMINS]
+                + ["", "Tap ➕ / ➖ to change."]
             )
             edit(chat_id, message_id, body, admins_keyboard())
             return
@@ -1066,8 +1142,51 @@ def handle_callback(cb):
     edit(chat_id, message_id, text, section_back_keyboard())
 
 
+def git(*args):
+    return subprocess.run(
+        ["git", "-C", HERE, *args], capture_output=True, text=True, timeout=180
+    )
+
+
+def current_commit():
+    r = git("rev-parse", "--short", "HEAD")
+    return r.stdout.strip() if r.returncode == 0 else "unknown"
+
+
+def update_once():
+    """Fetch origin/main; if it moved, pull and let the supervisor restart us."""
+    try:
+        if git("fetch", "--quiet", "origin", "main").returncode != 0:
+            return False
+        local = git("rev-parse", "HEAD").stdout.strip()
+        remote = git("rev-parse", "origin/main").stdout.strip()
+        if not local or not remote or local == remote:
+            return False
+        print(f"[update] {local[:7]} -> {remote[:7]}", flush=True)
+        if git("pull", "--ff-only", "--quiet", "origin", "main").returncode == 0:
+            print("[update] code updated, restarting", flush=True)
+            return True
+        print("[update] pull failed (local changes?), keeping current code", flush=True)
+    except Exception as exc:
+        print(f"[update] {exc}", flush=True)
+    return False
+
+
+def update_watcher():
+    if os.environ.get("SNAPDARK_NO_UPDATE") == "1":
+        print("[update] disabled", flush=True)
+        return
+    time.sleep(15)
+    while True:
+        if update_once():
+            time.sleep(2)
+            os._exit(0)
+        time.sleep(300)
+
+
 def main():
-    print(f"bot started (owner {OWNER_ID}, {len(SUBS)} subs)", flush=True)
+    print(f"bot started (owner {OWNER_ID}, {len(SUBS)} subs, {current_commit()})", flush=True)
+    threading.Thread(target=update_watcher, daemon=True).start()
     threading.Thread(target=expire_watcher, daemon=True).start()
     offset = None
     last_beat = time.time()
