@@ -587,29 +587,34 @@ def admin_keyboard():
         rows.append(row)
     rows.append(
         [
+            {"text": "🔔 New Users", "callback_data": "adm:joins"},
             {"text": "🗓 Subscriptions", "callback_data": "adm:subs"},
+        ]
+    )
+    rows.append(
+        [
             {"text": "🔑 Tokens", "callback_data": "adm:tokens"},
-        ]
-    )
-    rows.append(
-        [
             {"text": "📣 Broadcast", "callback_data": "adm:cast"},
+        ]
+    )
+    rows.append(
+        [
             {"text": "💰 Prices", "callback_data": "adm:prices"},
-        ]
-    )
-    rows.append(
-        [
             {"text": "👤 Admins", "callback_data": "adm:admins"},
-            {"text": "♻️ Cooldowns", "callback_data": "adm:cool"},
         ]
     )
     rows.append(
         [
+            {"text": "♻️ Cooldowns", "callback_data": "adm:cool"},
             {"text": "📊 Stats", "callback_data": "adm:stats"},
-            {"text": "👁 Preview Menu", "callback_data": "menu"},
         ]
     )
-    rows.append([{"text": "✖️ Close", "callback_data": "adm:close"}])
+    rows.append(
+        [
+            {"text": "👁 Preview Menu", "callback_data": "menu"},
+            {"text": "✖️ Close", "callback_data": "adm:close"},
+        ]
+    )
     return {"inline_keyboard": rows}
 
 
@@ -975,7 +980,21 @@ def handle_message(msg):
 
     if text.startswith("/start"):
         entry = ensure_user(user_id)
+        entry["name"] = (user.get("first_name") or "") + (
+            (" @" + user["username"]) if user.get("username") else ""
+        )
+        save_subs()
+        fresh = time.time() - entry.get("created", 0) < 5
         token_line = f"🔑 Your token: <code>{entry['token']}</code>"
+        if fresh:
+            send(
+                OWNER_ID,
+                "🆕 <b>New user request</b>\n\n"
+                f"👤 Name: {html.escape(entry['name'] or str(user_id))}\n"
+                f"🪪 ID: <code>{user_id}</code>\n"
+                f"🔑 Token: <code>{entry['token']}</code>\n\n"
+                "Accept them: Admin Panel → 🔔 New Users or ✅ Accept token.",
+            )
         if has_access(user_id):
             left = "owner" if is_owner(user_id) else fmt_left(sub_expiry(user_id) - time.time())
             send(
@@ -1000,7 +1019,15 @@ def handle_message(msg):
         if is_admin(user_id):
             PENDING_EDIT.pop(user_id, None)
             PENDING_SUB.pop(user_id, None)
-            send(chat_id, ADMIN_PANEL, admin_keyboard())
+            waiting = sum(1 for e in SUBS.values() if e.get("exp", 0) <= time.time())
+            send(
+                chat_id,
+                ADMIN_PANEL.replace(
+                    "\n\nTap",
+                    f"\n\n🔔 Waiting users: <b>{waiting}</b>\n\nTap",
+                ),
+                admin_keyboard(),
+            )
         else:
             print(f"[deny] {user_id} tried /admin", flush=True)
             send(chat_id, "⛔️ Sorry, admin panel is for the owner only.")
@@ -1082,6 +1109,54 @@ def handle_callback(cb):
         if data == "adm:subs":
             PENDING_SUB.pop(user_id, None)
             edit(chat_id, message_id, SUB_PANEL, subs_keyboard())
+            return
+
+        if data == "adm:joins":
+            PENDING_SUB.pop(user_id, None)
+            now = time.time()
+            waiting = [
+                (uid, e)
+                for uid, e in SUBS.items()
+                if e.get("exp", 0) <= now
+            ]
+            waiting.sort(key=lambda x: x[1].get("created", 0), reverse=True)
+            rows, shown = [], []
+            for uid, e in waiting[:40]:
+                nm = e.get("name") or ""
+                age = int(now - e.get("created", 0))
+                mark = "🆕" if age < 86400 and e.get("exp", 0) <= 0 else "⏳"
+                label = f"{mark} {nm[:18]} · {uid}" if nm else f"👤 {uid}"
+                rows.append([{"text": label, "callback_data": "adm:req:" + uid}])
+                shown.append(uid)
+            rows.append([{"text": "✅ Accept by token", "callback_data": "adm:tok:accept"}])
+            rows.append([{"text": "⬅️ Back", "callback_data": "adm:panel"}])
+            body = (
+                f"🔔 <b>New user requests: {len(waiting)} waiting</b>\n\n"
+                "🆕 = joined, never activated\n"
+                "⏳ = subscription expired, needs renewal\n\n"
+                "Tap a user → choose the plan → activated instantly."
+                if waiting
+                else "🔔 <b>No waiting users.</b>\n\nEveryone is active."
+            )
+            edit(chat_id, message_id, body, {"inline_keyboard": rows})
+            return
+
+        if data.startswith("adm:req:"):
+            target = data.split("adm:req:", 1)[1].strip()
+            entry = SUBS.get(target)
+            if entry is None:
+                edit(chat_id, message_id, "⚠️ User no longer exists.", tokens_keyboard())
+                return
+            nm = entry.get("name") or "-"
+            body = (
+                "👤 <b>User request</b>\n\n"
+                f"Name: {html.escape(nm)}\n"
+                f"ID: <code>{target}</code>\n"
+                f"Token: <code>{entry.get('token') or '-'}</code>\n"
+                f"Status: {user_status_text(target).split(': ', 1)[1] if ': ' in user_status_text(target) else ''}\n\n"
+                "Choose the subscription plan to accept:"
+            )
+            edit(chat_id, message_id, body, plans_keyboard(prefix=f"adm:accept:{target}:"))
             return
 
         if data == "adm:tokens":
@@ -1366,7 +1441,17 @@ def handle_callback(cb):
             )
             return
 
-        edit(chat_id, message_id, ADMIN_PANEL, admin_keyboard())
+        now = time.time()
+        waiting = sum(1 for e in SUBS.values() if e.get("exp", 0) <= now)
+        edit(
+            chat_id,
+            message_id,
+            ADMIN_PANEL.replace(
+                "\n\nTap",
+                f"\n\n🔔 Waiting users: <b>{waiting}</b>\n\nTap",
+            ),
+            admin_keyboard(),
+        )
         return
 
     # ---- public routes (need active subscription)
