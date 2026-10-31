@@ -52,26 +52,31 @@ PLAN_NAME = {key: label.split(" ", 1)[1] for label, key, _ in PLANS}
 SCRIPTS_DIR = os.path.join(HERE, "scripts")
 SENSEI_DIR = "/storage/emulated/0/senseitunnel"
 COOLDOWN_SECONDS = 8 * 3600  # same VPN again only after 8 hours
-VPNS = [
-    {
-        "key": "apna",
-        "name": "APNA VPN 3.9",
-        "script": "APNA VPN.py",
-        "out": "/sdcard/VPNs/APNA VPN ☠️.json",
-    },
-    {
-        "key": "mnrpro",
-        "name": "MNR TUNNEL PRO 3.2",
-        "script": "MNR TUNNEL PRO.py",
-        "out": "/sdcard/VPNs/MNR TUNNEL PRO VPN ☠️.json",
-    },
-    {
-        "key": "mnrplus",
-        "name": "MNR TUNNEL PLUS 3.4",
-        "script": "MNR TUNNEL PLUS.py",
-        "out": "/sdcard/VPNs/MNR TUNNEL PLUS VPN ☠️.json",
-    },
-]
+
+
+def slug(name):
+    out = []
+    for ch in name.lower():
+        if ch.isalnum():
+            out.append(ch)
+        elif out and out[-1] != "-":
+            out.append("-")
+    return "".join(out).strip("-")
+
+
+def discover_vpns():
+    """Every decryptor script shipped in the repo becomes a button."""
+    base = SCRIPTS_DIR if os.path.isdir(SCRIPTS_DIR) else SENSEI_DIR
+    apps = []
+    if os.path.isdir(base):
+        for fn in sorted(os.listdir(base), key=str.lower):
+            if fn.endswith(".py") and not fn.startswith("_"):
+                name = fn[:-3]
+                apps.append({"key": slug(name), "name": name, "script": fn})
+    return apps
+
+
+VPNS = discover_vpns()
 VPN_BY_KEY = {v["key"]: v for v in VPNS}
 RUNNING = set()  # uids currently generating a config
 
@@ -292,13 +297,43 @@ def send_document(chat_id, path, caption=None):
 
 
 def vpn_keyboard():
-    rows = [[{"text": "📡 " + v["name"], "callback_data": "vpn:" + v["key"]}] for v in VPNS]
+    rows, row = [], []
+    for v in VPNS:
+        row.append({"text": "📡 " + v["name"], "callback_data": "vpn:" + v["key"]})
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
     rows.append([{"text": "⬅️ Menu", "callback_data": "menu"}])
     return {"inline_keyboard": rows}
 
 
+def newest_json(started, extra_dirs=()):
+    dirs = ["/sdcard/VPNs", "/sdcard", os.path.expanduser("~"), *extra_dirs]
+    best, best_m = None, 0
+    for d in dirs:
+        if not os.path.isdir(d):
+            continue
+        try:
+            entries = os.listdir(d)
+        except OSError:
+            continue
+        for fn in entries:
+            if not fn.lower().endswith(".json"):
+                continue
+            p = os.path.join(d, fn)
+            try:
+                m = os.path.getmtime(p)
+            except OSError:
+                continue
+            if m >= started and m > best_m and os.path.getsize(p) > 32:
+                best, best_m = p, m
+    return best
+
+
 def build_vpn(chat_id, key):
-    """Run the decryptor script and send the resulting JSON."""
+    """Run the decryptor script and send the JSON it produced."""
     spec = VPN_BY_KEY.get(key)
     if not spec:
         send(chat_id, "Unknown app.", vpn_keyboard())
@@ -322,8 +357,7 @@ def build_vpn(chat_id, key):
     try:
         send(chat_id, f"⏳ Building <b>{spec['name']}</b> live config…\nThis can take up to a minute.")
         script, base = script_path(spec["script"])
-        started = time.time() - 2
-        out = spec["out"]
+        started = time.time() - 3
         ok = False
         if script:
             try:
@@ -331,19 +365,19 @@ def build_vpn(chat_id, key):
                     [sys.executable, script],
                     cwd=base,
                     capture_output=True,
-                    timeout=240,
+                    stdin=subprocess.DEVNULL,
+                    timeout=120,
                 )
-                tail = (proc.stdout or b"").decode(errors="replace").strip().splitlines()[-3:]
+                tail = (proc.stdout or b"").decode(errors="replace").strip().splitlines()[-2:]
                 print(f"[vpn] {key} rc={proc.returncode} {' | '.join(tail)}", flush=True)
                 ok = proc.returncode == 0
             except Exception as exc:
                 print(f"[vpn] {key} error: {exc}", flush=True)
         else:
-            print(f"[vpn] {key} script missing: {script}", flush=True)
+            print(f"[vpn] {key} script missing", flush=True)
 
-        fresh = os.path.exists(out) and os.path.getmtime(out) >= started
-        sent = None
-        if fresh and ok:
+        out = newest_json(started, (base,)) if ok else None
+        if out:
             size = os.path.getsize(out)
             sent = send_document(
                 chat_id,
@@ -354,15 +388,13 @@ def build_vpn(chat_id, key):
             )
             if sent and not admin:
                 mark_cooldown(chat_id, key)
-        elif os.path.exists(out):
-            sent = send_document(
-                chat_id,
-                out,
-                f"⚠️ Live build failed — sending cached copy\n"
-                f"🕒 {time.strftime('%Y-%m-%d %H:%M', time.localtime(os.path.getmtime(out)))}",
-            )
         else:
-            send(chat_id, "❌ Could not build the config. The admin has been notified.", vpn_keyboard())
+            send(
+                chat_id,
+                f"❌ <b>{spec['name']}</b>: could not build the config right now.\n"
+                "The app may be offline or the script needs updating.",
+                vpn_keyboard(),
+            )
     finally:
         RUNNING.discard(chat_id)
 

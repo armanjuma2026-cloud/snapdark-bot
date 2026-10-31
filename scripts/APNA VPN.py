@@ -1,354 +1,240 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-APNA VPN 3.9 (my.teamapna.tunnel) — config decryptor / server dumper
-===================================================================
-Family  : prince-ocs (same chained-carry XXTEA engine as Der Tunnel / APNA Tunnel Lite / FNF)
-L1      : base64 -> XXTEA (DELTA 0x9E5729B1, LE words, carry-chain, tail = plaintext len) -> JSON
-L2      : per-field blobs (Username / Password) = SAME engine + SAME key -> "tanginaka"
-Key     : '...|...'  (7 bytes, zero-padded to 16)
-Live    : https://amtun.xyz/updater/c44cef4d43f71b0d45e01ae1dc7bd2   (UA-locked: 403 without a UA)
-Embedded: assets/janu.json inside base.apk of the .apks   (fallback, v289)
-Output  : /sdcard/VPNs/APNA VPN ☠️.json  +  .txt
-
-Usage:
-    python3 "APNA VPN.py"                 # live first, embedded fallback
-    python3 "APNA VPN.py" --apk FILE.apks # force embedded
-    python3 "APNA VPN.py" --out-dir DIR --basename name   # custom output (bot/server)
-"""
-import base64
-import json
+# Python By @snapdark_decoder 🇧🇩
 import os
-import re
-import shutil
-import struct
 import sys
-import time
-import urllib.request
-import zipfile
+import json
+import shutil
+import subprocess
 
-CONFIG_URL = "https://amtun.xyz/updater/c44cef4d43f71b0d45e01ae1dc7bd2"
-ALT_URLS = [
-    "https://paperonboard.com/updater/3c3c4c58d864ca394da16656b4d0c4",
-]
-APK_DEFAULT = "/storage/emulated/0/MT2/apks/APNA VPN_3.9.apks"
-
-KEY = b"...|..."
-DELTA = 0x9E5729B1
-MASK = 0xFFFFFFFF
-
-OUT_DIR = os.environ.get("APNA_OUT_DIR", "/sdcard/VPNs")
-OUT_BASE = os.environ.get("APNA_OUT_BASE", "APNA VPN ☠️")
-
-CREDITS = "Decrypted By @SnapDark 🇧🇩 | Join channel: t.me/Jubairbro"
-UAS = ["okhttp/3.12.0", "okhttp/4.9.0", "okhttp/4.12.0", "Mozilla/5.0 (Linux; Android 13)"]
-
-B64_RE = re.compile(r"^[A-Za-z0-9+/]{11,}={0,2}$")
-
-
-# ----------------------------------------------------------------------------- ui
-def term_w(default=78):
+def check_dependencies():
     try:
-        return max(60, min(96, shutil.get_terminal_size((default, 24)).columns))
-    except Exception:
-        return default
+        import requests
+    except ImportError:
+        width = shutil.get_terminal_size((80, 20)).columns
+        print("\033[93m" + "[*] Required modules missing. Auto-installing...".center(width) + "\033[0m")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "-q"])
 
+check_dependencies()
+import requests
 
-def print_c(text, ch="="):
-    w = term_w()
-    print(ch * w)
-    for line in str(text).splitlines():
-        print(line.center(w))
-    print(ch * w)
+C_RED = '\033[91m'
+C_GREEN = '\033[92m'
+C_YELLOW = '\033[93m'
+C_BLUE = '\033[94m'
+C_CYAN = '\033[96m'
+C_RESET = '\033[0m'
 
+OUTPUT_FILE = "/sdcard/VPNs/APNA VPN ☠️.json"
+APK_CANDIDATES = [
+    "/sdcard/MT2/apks/APNA VPN_3.9.apks",
+    "/storage/emulated/0/MT2/apks/APNA VPN_3.9.apks",
+]
+ASSET_CONFIG = "assets/janu.json"
 
-def print_bar(text, ch="-"):
-    w = term_w()
-    print(ch * w)
-    print(" " + str(text))
-    print(ch * w)
+APP_NAME = "APNA VPN"
+APP_PACKAGE = "my.teamapna.tunnel"
+APP_UA = "my.teamapna.tunnel"
 
+# ---- Layer keys ----
+#  lsparanoid Deobfuscator$APNAVPN$app : splitmix64-style seed(), 16-bit LCG next(),
+#    chunk pool 8191 chars, getCharAt(pos,next(state)), string len = high16 of first pool char.
+#  XXTEA (janu.json) : delta 0x9E5729B1, chained-carry MX (Bm.a/Bm.b), LE words,
+#    key '...|...' zero-padded to 16 bytes, tail word = plaintext length.
+#  Base64 : standard alphabet (HZ.o), whole-file blob.
+XXTEA_KEY = "...|..."
+DELTA = 0x9E5729B1
+MASK32 = 0xFFFFFFFF
 
-# --------------------------------------------------------------------------- xxtea
-def _mx(s, y, z, p, e, k):
-    return ((((z >> 5) ^ (y << 2)) + ((y >> 3) ^ (z << 4)))
-            ^ ((s ^ y) + (k[(p & 3) ^ e] ^ z))) & MASK
+CREDITS = "Decrypted By @SnapDark 🇧🇩 | Join channel: t.me/SnapDark"
 
+def print_c(text, color=""):
+    width = shutil.get_terminal_size((80, 20)).columns
+    print(f"{color}{text.center(width)}{C_RESET}")
 
-def xxtea_decrypt(data, key=KEY):
-    """prince-family chained-carry XXTEA. data = raw bytes (LE words, no len word)."""
-    if len(data) < 8:
+def print_bar(color=""):
+    width = shutil.get_terminal_size((80, 20)).columns
+    print(f"{color}{'━' * width}{C_RESET}")
+
+# ---------------- LAYER 2 : XXTEA (delta 0x9E5729B1, chained-carry, length tail) ----------------
+
+def _to_int_array(data, include_length):
+    m = (len(data) + 3) // 4
+    result = [0] * (m + 1) if include_length else [0] * m
+    if include_length:
+        result[m] = len(data)
+    for i, b in enumerate(data):
+        result[i // 4] |= (b & 0xFF) << ((i % 4) * 8)
+    return result
+
+def _to_byte_array(words, with_length):
+    raw = b"".join((w & MASK32).to_bytes(4, "little") for w in words)
+    if not with_length:
+        return raw
+    n = len(words)
+    tail = int.from_bytes(raw[-4:], "little")
+    if 4 * n - 7 <= tail <= 4 * n - 4:
+        return raw[:tail]
+    return None
+
+def _mx(sum_, y, z, p, e, key):
+    a = ((z & MASK32) >> 5) ^ ((y << 2) & MASK32)
+    b = ((y & MASK32) >> 3) ^ ((z << 4) & MASK32)
+    c = (sum_ ^ y) & MASK32
+    d = (key[(p & 3) ^ e] ^ (z & MASK32)) & MASK32
+    return ((a + b) ^ (c + d)) & MASK32
+
+def xxtea_decrypt(data, key):
+    if not data:
         return None
-    v = [int.from_bytes(data[i:i + 4], "little") for i in range(0, len(data), 4)]
-    k = list(struct.unpack("<4I", key.ljust(16, b"\0")[:16]))
+    v = _to_int_array(data, False)
+    k = _to_int_array((key.encode() + b"\x00" * 16)[:16], False)
     n = len(v)
+    if n < 2:
+        return _to_byte_array(v, True)
     rounds = 52 // n + 6
-    s = (rounds * DELTA) & MASK
+    sum_ = (rounds * DELTA) & MASK32
     carry = v[0]
-    while s:
-        e = (s >> 2) & 3
-        cv = carry
-        p = n - 1
-        while p > 0:
-            cv = (v[p] - _mx(s, cv, v[p - 1], p, e, k)) & MASK
-            v[p] = cv
-            p -= 1
-        carry = (v[0] - _mx(s, cv, v[n - 1], 0, e, k)) & MASK
-        v[0] = carry
-        s = (s - DELTA) & MASK
-    out = b"".join(x.to_bytes(4, "little") for x in v)
-    # last word = plaintext length, valid window N*4-7 .. N*4-4
-    tail = int.from_bytes(out[-4:], "little")
-    if not (len(out) - 7 <= tail <= len(out) - 4):
-        return None
-    return out[:tail]
+    e = (sum_ >> 2) & 3
+    while sum_ != 0:
+        for p in range(n - 1, 0, -1):
+            carry = v[p] = (v[p] - _mx(sum_, carry, v[p - 1], p, e, k)) & MASK32
+        carry = v[0] = (v[0] - _mx(sum_, carry, v[n - 1], 0, e, k)) & MASK32
+        sum_ = (sum_ - DELTA) & MASK32
+        e = (sum_ >> 2) & 3
+    return _to_byte_array(v, True)
 
+def decrypt_blob(payload_text, key=XXTEA_KEY):
+    """The app's Bm.c wrapper: base64 -> XXTEA(chained-carry) -> UTF-8 text."""
+    raw = base64_decode(payload_text)
+    out = xxtea_decrypt(raw, key)
+    if out is None:
+        raise ValueError("XXTEA tail length invalid — wrong key/scheme")
+    return out.decode("utf-8", "replace")
 
-def b64d(s):
-    s = "".join(s.split())
-    return base64.b64decode(s + "=" * (-len(s) % 4))
+def base64_decode(text):
+    import base64
+    return base64.b64decode("".join(str(text).split()))
 
-
-def decrypt_config(text):
-    """base64 -> XXTEA -> JSON (whole config file)."""
-    raw = b64d(text)
-    plain = xxtea_decrypt(raw)
-    if plain is None:
-        raise ValueError("XXTEA length gate failed (wrong key/delta or corrupted blob)")
-    return json.loads(plain.decode("utf-8")), len(raw)
-
+# ---------------- LAYER 1 : live updater first, embedded APK asset as fallback ----------------
 
 def l2_field(value):
-    """Per-field blob decrypt (Username/Password ...). Returns None if not a blob."""
-    if not isinstance(value, str) or not B64_RE.match(value):
-        return None
+    """L2: top-level credential blobs use the SAME engine + key (lsparanoid-backed).
+    e.g. 'zsqaS2Xni5AiP3Z/iFsBMg==' -> 'tanginaka'. Keep raw on any failure."""
+    if not isinstance(value, str) or not (8 <= len(value) <= 512):
+        return value
+    if not all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=" for c in value):
+        return value
     try:
-        raw = b64d(value)
-        if len(raw) < 8:
-            return None
-        plain = xxtea_decrypt(raw)
-        if plain is None:
-            return None
-        txt = plain.decode("utf-8")
-        return txt.rstrip("\x00")
+        return decrypt_blob(value)
     except Exception:
-        return None
+        return value
 
-
-# --------------------------------------------------------------------------- fetch
-def fetch(url, timeout=45):
-    err = None
-    for ua in UAS:
-        try:
-            req = urllib.request.Request(url, headers={
-                "User-Agent": ua,
-                "Accept": "*/*",
-                "Connection": "close",
-            })
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                body = r.read()
-                if r.status == 200 and len(body) > 512:
-                    return body.decode("utf-8", "replace"), ua
-        except Exception as exc:      # noqa: BLE001
-            err = exc
-    raise RuntimeError("fetch failed for %s (%s)" % (url, err))
-
-
-# ------------------------------------------------------------------------ embedded
-def load_embedded(apk_path):
-    with zipfile.ZipFile(apk_path) as apks:
-        names = apks.namelist()
-        inner = "base.apk" if "base.apk" in names else next(
-            (n for n in names if n.endswith(".apk")), None)
-        if inner is None:
-            raise RuntimeError("no base.apk inside %s" % apk_path)
-        blob = apks.read(inner)
+def load_embedded():
+    import zipfile
     import io
-    with zipfile.ZipFile(io.BytesIO(blob)) as base:
-        text = base.read("assets/janu.json").decode("utf-8", "replace")
-    return decrypt_config(text)[0], "embedded:" + apk_path
-
-
-# ------------------------------------------------------------------------ output
-def walk(obj, path=""):
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            yield from walk(v, path + "." + k if path else k)
-    elif isinstance(obj, list):
-        for i, v in enumerate(obj):
-            yield from walk(v, "%s[%d]" % (path, i))
-    elif isinstance(obj, str):
-        yield path, obj
-
-
-def decrypt_l2(obj):
-    """Decrypt every L2 blob in place; returns list of decrypted paths."""
-    done = []
-
-    def rec(o, path):
-        if isinstance(o, dict):
-            for k in list(o):
-                p = path + "." + k if path else k
-                if isinstance(o[k], str):
-                    r = l2_field(o[k])
-                    if r is not None:
-                        o[k] = r
-                        done.append(p)
-                else:
-                    rec(o[k], p)
-        elif isinstance(o, list):
-            for i, v in enumerate(o):
-                p = "%s[%d]" % (path, i)
-                if isinstance(v, str):
-                    r = l2_field(v)
-                    if r is not None:
-                        o[i] = r
-                        done.append(p)
-                else:
-                    rec(v, p)
-
-    rec(obj, "")
-    return done
-
-
-def merge_servers(cfg):
-    out = []
-    for key, tag in (("Free_servers", "FREE"), ("Premium_servers", "PREMIUM"),
-                     ("Vip_servers", "VIP"), ("Private_servers", "PRIVATE")):
-        for s in cfg.get(key) or []:
-            s = dict(s)
-            s["_tier"] = tag
-            out.append(s)
-    return out
-
-
-def build_doc(cfg, source, raw_len):
-    servers = merge_servers(cfg)
-    return {
-        "CREDITS": CREDITS,
-        "_source": source,
-        "_family": "prince-ocs / my.teamapna.tunnel",
-        "_cipher": "XXTEA chained-carry DELTA 0x9E5729B1 key '...|...' (L1 base64 blob + L2 per-field)",
-        "_raw_b64_len": raw_len,
-        "Version": cfg.get("Version"),
-        "Changelogs": cfg.get("Changelogs"),
-        "UpdaterLink": cfg.get("UpdaterLink"),
-        "Username": cfg.get("Username"),
-        "Password": cfg.get("Password"),
-        "Free_servers": cfg.get("Free_servers") or [],
-        "Premium_servers": cfg.get("Premium_servers") or [],
-        "Vip_servers": cfg.get("Vip_servers") or [],
-        "Private_servers": cfg.get("Private_servers") or [],
-        "Payloads": cfg.get("Payloads") or [],
-        "_summary": {
-            "servers": len(servers),
-            "free": len(cfg.get("Free_servers") or []),
-            "premium": len(cfg.get("Premium_servers") or []),
-            "vip": len(cfg.get("Vip_servers") or []),
-            "private": len(cfg.get("Private_servers") or []),
-            "payloads": len(cfg.get("Payloads") or []),
-            "categories": sorted({s.get("category") for s in servers if s.get("category")}),
-        },
-    }
-
-
-def write_json(path, doc):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    if os.path.exists(path):
-        shutil.copy2(path, path + ".bak")
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(doc, f, indent=1, ensure_ascii=False)
-    os.replace(tmp, path)
-
-
-def write_txt(path, doc):
-    L = []
-    L.append("APNA VPN 3.9 — decrypted config")
-    L.append(CREDITS)
-    L.append("source : %s" % doc["_source"])
-    L.append("version: %s    servers: %d    payloads: %d"
-             % (doc.get("Version"), doc["_summary"]["servers"], doc["_summary"]["payloads"]))
-    L.append("creds  : %s / %s" % (doc.get("Username"), doc.get("Password")))
-    L.append("")
-    for s in merge_servers(doc):
-        hosts = [h for h in (s.get("server_host") or "").split(";") if h]
-        L.append("[%s] %s  (%s)" % (s["_tier"], s.get("server_name", "?"), s.get("category", "?")))
-        L.append("    hosts(%d): %s%s" % (len(hosts), ", ".join(hosts[:6]),
-                                          " ..." if len(hosts) > 6 else ""))
-        ports = {k: s.get(k) for k in ("server_port", "server_udp_port", "ssl_port", "squid_port")
-                 if s.get(k)}
-        if ports:
-            L.append("    ports: " + "  ".join("%s=%s" % kv for kv in ports.items()))
-    L.append("")
-    cats = {}
-    for p in doc["Payloads"]:
-        cats.setdefault(p.get("category"), []).append(p)
-    L.append("Payloads by category (%d total):" % len(doc["Payloads"]))
-    for c in sorted(cats, key=lambda x: str(x)):
-        L.append("  %-12s %d" % (c, len(cats[c])))
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("\n".join(L) + "\n")
-
-
-# --------------------------------------------------------------------------- main
-def _arg(flag, default=None):
-    for i, a in enumerate(sys.argv):
-        if a == flag and i + 1 < len(sys.argv):
-            return sys.argv[i + 1]
-    return default
-
+    for apk_path in APK_CANDIDATES:
+        if not os.path.exists(apk_path):
+            continue
+        try:
+            label = apk_path
+            if apk_path.endswith(".apks"):
+                with zipfile.ZipFile(apk_path) as z:
+                    base = zipfile.ZipFile(io.BytesIO(z.read("base.apk")))
+                    if ASSET_CONFIG not in base.namelist():
+                        continue
+                    return base.read(ASSET_CONFIG), apk_path
+            else:
+                with zipfile.ZipFile(apk_path) as z:
+                    if ASSET_CONFIG in z.namelist():
+                        return z.read(ASSET_CONFIG), apk_path
+        except Exception:
+            continue
+    return None, None
 
 def main():
-    t0 = time.time()
-    print_c("APNA VPN 3.9  —  CONFIG DECRYPTOR\nprince-ocs  ·  XXTEA 0x9E5729B1  ·  key '...|...'")
+    print_bar(C_RED)
+    print_c(f"{APP_NAME} — decryptor (my.teamapna.tunnel)", C_RED)
+    print_c("By @SnapDark 🇧🇩 | t.me/SnapDark", C_CYAN)
+    print_bar(C_RED)
 
-    cfg = src = None
-    raw_len = 0
-    force_apk = "--apk" in sys.argv
-    apk = _arg("--apk")
-    out_dir = _arg("--out-dir", OUT_DIR)
-    out_base = _arg("--basename", OUT_BASE)
-    out_json = os.path.join(out_dir, out_base + ".json")
-    out_txt = os.path.join(out_dir, out_base + ".txt")
-    if not force_apk:
-        for url in [CONFIG_URL] + ALT_URLS:
-            try:
-                print("\n[*] live fetch: %s" % url)
-                text, ua = fetch(url)
-                cfg, raw_len = decrypt_config(text)
-                src = url
-                print("    ok  %s  (%d chars, UA %s)" % (url, len(text), ua))
-                break
-            except Exception as exc:      # noqa: BLE001
-                print("    fail %s" % exc)
+    config = None
+    source = None
 
-    if cfg is None:
-        path = apk or APK_DEFAULT
-        print("\n[*] embedded fallback: %s" % path)
-        cfg, src = load_embedded(path)
+    # Live updater (same XXTEA layer, Version field bumps with each push)
+    try:
+        print_c("[*] Fetching live updater ...", C_BLUE)
+        link = "https://amtun.xyz/updater/c44cef4d43f71b0d45e01ae1dc7bd2"
+        r = requests.get(link, timeout=60, headers={"User-Agent": APP_UA})
+        r.raise_for_status()
+        config = json.loads(decrypt_blob(r.text))
+        source = link
+        print_c(f"[+] LIVE OK — Version {config.get('Version')}", C_GREEN)
+    except Exception as ex:
+        print_c(f"[!] Live updater failed: {ex}", C_YELLOW)
 
-    print("[*] version %s  ·  %d servers  ·  %d payloads"
-          % (cfg.get("Version"), len(merge_servers(cfg)), len(cfg.get("Payloads") or [])))
+    if config is None:
+        data, apk_path = load_embedded()
+        if data is None:
+            print_c("[-] No embedded config found!", C_RED)
+            return
+        try:
+            print_c("[*] Decrypting embedded config ...", C_BLUE)
+            config = json.loads(decrypt_blob(data.decode("utf-8")))
+            source = f"embedded {os.path.basename(apk_path)} {ASSET_CONFIG}"
+            print_c(f"[+] Embedded OK — Version {config.get('Version')}", C_GREEN)
+        except Exception as ex:
+            print_c(f"[-] Embedded decrypt failed: {ex}", C_RED)
+            return
 
-    done = decrypt_l2(cfg)
-    print("[*] L2 fields decrypted: %d %s" % (len(done), done if len(done) <= 6 else ""))
+    # ---- global account: like APNA SHIELD / FNF, per-server username/password ----
+    # ---- are empty placeholders — the app injects the top-level account into ----
+    # ---- every server at runtime. Fill them so the JSON shows what the app uses.
+    glob_user = l2_field(config.get("Username"))
+    glob_pass = l2_field(config.get("Password"))
+    filled = 0
+    for bucket in ("Premium_servers", "Vip_servers", "Private_servers", "Free_servers"):
+        for srv in config.get(bucket) or []:
+            if isinstance(srv, dict):
+                if not srv.get("username"):
+                    srv["username"] = glob_user
+                    filled += 1
+                if not srv.get("password"):
+                    srv["password"] = glob_pass
+                    filled += 1
+    print_c(f"[*] global account {glob_user}/{glob_pass} injected into {filled} empty server cred fields", C_CYAN)
 
-    doc = build_doc(cfg, src, raw_len)
-    blob_left = [p for p, v in walk(cfg) if isinstance(v, str) and B64_RE.match(v) and l2_field(v)]
-    print("[*] residual L2 blobs: %d" % len(blob_left))
+    out = {
+        "CREDITS": CREDITS,
+        "_source": f"{source} | XXTEA delta 0x9E5729B1 key '...|...' | lsparanoid Deobfuscator$APNAVPN$app",
+        "_credentials_note": (f"app-wide global account — every server with empty creds uses "
+                              f"Username={glob_user!r} / Password={glob_pass!r} (injected by the app at runtime; "
+                              f"now filled into each server entry)."),
+        "Premium_servers": config.get("Premium_servers", []),
+        "Vip_servers": config.get("Vip_servers", []),
+        "Private_servers": config.get("Private_servers", []),
+        "Payloads": config.get("Payloads", []),
+        "Free_servers": config.get("Free_servers", []),
+        "Version": config.get("Version"),
+        "Changelogs": config.get("Changelogs"),
+        "Username": l2_field(config.get("Username")),
+        "Password": l2_field(config.get("Password")),
+        "UpdaterLink": config.get("UpdaterLink"),
+        "App": {"name": APP_NAME, "package": APP_PACKAGE},
+    }
 
-    write_json(out_json, doc)
-    write_txt(out_txt, doc)
+    # JSON validity gate — never save invalid output
+    try:
+        json.dumps(out, ensure_ascii=False)
+    except (TypeError, ValueError) as ex:
+        print_c(f"[-] JSON validity gate failed: {ex}", C_RED)
+        return
 
-    s = doc["_summary"]
-    print_bar("RESULT  v%s · %d servers (free %d) · %d payloads · %s"
-              % (doc.get("Version"), s["servers"], s["free"], s["payloads"], ",".join(s["categories"])))
-    print("JSON : %s (%d KB)" % (out_json, os.path.getsize(out_json) // 1024))
-    print("TXT  : %s" % out_txt)
-    print("creds: %s / %s" % (doc.get("Username"), doc.get("Password")))
-    print("done in %.2fs" % (time.time() - t0))
+    os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        json.dump(out, f, ensure_ascii=False, indent=2)
 
+    print_c(f"[+] Saved: {OUTPUT_FILE}", C_GREEN)
+    print_c(f"    servers: {len(out['Free_servers'])} free | {len(out['Payloads'])} payloads | version {out['Version']}", C_CYAN)
+    print_bar(C_GREEN)
 
 if __name__ == "__main__":
     main()
