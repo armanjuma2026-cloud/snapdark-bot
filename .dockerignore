@@ -1,0 +1,9 @@
+.git
+*.log
+token.txt
+subs.json
+content.json
+prices.json
+admins.json
+cooldowns.json
+__pycache__
