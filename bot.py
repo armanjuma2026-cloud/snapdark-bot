@@ -1126,7 +1126,7 @@ def handle_callback(cb):
                 age = int(now - e.get("created", 0))
                 mark = "🆕" if age < 86400 and e.get("exp", 0) <= 0 else "⏳"
                 label = f"{mark} {nm[:18]} · {uid}" if nm else f"👤 {uid}"
-                rows.append([{"text": label, "callback_data": "adm:req:" + uid}])
+                rows.append([{"text": label, "callback_data": f"adm:req:{uid}"}])
                 shown.append(uid)
             rows.append([{"text": "✅ Accept by token", "callback_data": "adm:tok:accept"}])
             rows.append([{"text": "⬅️ Back", "callback_data": "adm:panel"}])
@@ -1142,7 +1142,11 @@ def handle_callback(cb):
             return
 
         if data.startswith("adm:req:"):
-            target = data.split("adm:req:", 1)[1].strip()
+            try:
+                target = int(data.split("adm:req:", 1)[1])
+            except ValueError:
+                edit(chat_id, message_id, "⚠️ Bad user id.", tokens_keyboard())
+                return
             entry = SUBS.get(target)
             if entry is None:
                 edit(chat_id, message_id, "⚠️ User no longer exists.", tokens_keyboard())
@@ -1184,7 +1188,7 @@ def handle_callback(cb):
             rows = []
             for uid, e in idle[:40]:
                 label = f"{'🔑' if e.get('token') else '🚫'} {uid}"
-                rows.append([{"text": label, "callback_data": "adm:tok:new:" + uid}])
+                rows.append([{"text": label, "callback_data": f"adm:tok:new:{uid}"}])
             rows.append([{"text": "⬅️ Back", "callback_data": "adm:tokens"}])
             body = (
                 f"👥 <b>Users without an active subscription: {len(idle)}</b>\n\n"
@@ -1196,7 +1200,11 @@ def handle_callback(cb):
             return
 
         if data.startswith("adm:tok:new:"):
-            target = data.split("adm:tok:new:", 1)[1].strip()
+            try:
+                target = int(data.split("adm:tok:new:", 1)[1])
+            except ValueError:
+                edit(chat_id, message_id, "⚠️ Bad user id.", tokens_keyboard())
+                return
             entry = SUBS.get(target)
             if entry is None:
                 entry = {"exp": 0, "plan": None, "created": time.time()}
@@ -1271,6 +1279,10 @@ def handle_callback(cb):
             except ValueError:
                 edit(chat_id, message_id, "⚠️ Bad button data.", tokens_keyboard())
                 return
+            try:
+                target = int(target)
+            except ValueError:
+                pass
             if plan not in PLAN_SECONDS or target not in SUBS:
                 edit(chat_id, message_id, "⚠️ User or plan not found.", tokens_keyboard())
                 return
