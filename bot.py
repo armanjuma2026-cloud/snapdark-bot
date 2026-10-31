@@ -646,7 +646,8 @@ def tokens_keyboard():
     return {
         "inline_keyboard": [
             [{"text": "📋 List tokens", "callback_data": "adm:tok:list"}],
-            [{"text": "➕ Add / regenerate", "callback_data": "adm:tok:add"}],
+            [{"text": "👥 New users (no subscription)", "callback_data": "adm:tok:newlist"}],
+            [{"text": "➕ Create token by user id", "callback_data": "adm:tok:add"}],
             [{"text": "🗑 Remove token", "callback_data": "adm:tok:del"}],
             [{"text": "⬅️ Back", "callback_data": "adm:panel"}],
         ]
@@ -660,7 +661,15 @@ ADMIN_PANEL = (
     "Tap 👁 Preview Menu to see what users see."
 )
 SUB_PANEL = "🗓 <b>Subscriptions</b>\n\nAdd, extend, remove or check any user."
-TOKEN_PANEL = "🔑 <b>Tokens</b>\n\nOne token per user, created automatically on join."
+TOKEN_PANEL = (
+    "🔑 <b>Tokens</b>\n\n"
+    "Every user gets one token <b>automatically</b> on /start — no action needed.\n\n"
+    "👥 <b>New users</b> — users who started the bot but have no subscription. "
+    "Tap a user to create a fresh token.\n"
+    "➕ <b>Create token by user id</b> — make/replace a token for any id "
+    "(send <code>id</code> or <code>id MY-TOKEN</code>).\n\n"
+    f"Tokens in use: <b>{len(SUBS)}</b>"
+)
 PRICE_PANEL = "💰 <b>Prices</b>\n\nTap a plan and send its price text."
 ADMINS_PANEL = "👤 <b>Admins</b>\n\nExtra admin ids (owner always has access)."
 
@@ -849,11 +858,18 @@ def handle_message(msg):
                 f"🔑 Token for <b>{target}</b>: <code>{entry['token']}</code>",
                 tokens_keyboard(),
             )
-            send(
+            delivered = send(
                 target,
                 f"🔑 Your token: <code>{entry['token']}</code>\n\n"
                 f"Send it to {ADMIN_USERNAME} to activate your subscription.",
             )
+            if not delivered:
+                send(
+                    chat_id,
+                    f"⚠️ Token for <b>{target}</b> is created, but the user never "
+                    "pressed /start, so Telegram blocked the message. Send it manually.",
+                    tokens_keyboard(),
+                )
             return
         if action == "remove":
             if SUBS.pop(target, None) is None:
@@ -993,13 +1009,57 @@ def handle_callback(cb):
             edit(chat_id, message_id, body, tokens_keyboard())
             return
 
+        if data == "adm:tok:newlist":
+            PENDING_SUB.pop(user_id, None)
+            now = time.time()
+            idle = [(uid, e) for uid, e in sorted(SUBS.items()) if e.get("exp", 0) <= now]
+            rows = []
+            for uid, e in idle[:40]:
+                label = f"{'🔑' if e.get('token') else '🚫'} {uid}"
+                rows.append([{"text": label, "callback_data": "adm:tok:new:" + uid}])
+            rows.append([{"text": "⬅️ Back", "callback_data": "adm:tokens"}])
+            body = (
+                f"👥 <b>Users without an active subscription: {len(idle)}</b>\n\n"
+                "Tap a user to create a new token for them."
+                if idle
+                else "👥 <b>No users without a subscription.</b>\n\nNobody has started the bot yet."
+            )
+            edit(chat_id, message_id, body, {"inline_keyboard": rows})
+            return
+
+        if data.startswith("adm:tok:new:"):
+            target = data.split("adm:tok:new:", 1)[1].strip()
+            entry = SUBS.get(target)
+            if entry is None:
+                entry = {"exp": 0, "plan": None, "created": time.time()}
+                SUBS[target] = entry
+            entry["token"] = gen_token()
+            save_subs()
+            print(f"[token] {user_id} created token for {target}", flush=True)
+            delivered = send(
+                target,
+                f"🔑 Your new token: <code>{entry['token']}</code>\n\n"
+                f"Send it to {ADMIN_USERNAME} to activate your subscription.",
+            )
+            note = "" if delivered else (
+                "\n\n⚠️ Could not message this user — they must press /start first."
+            )
+            edit(
+                chat_id,
+                message_id,
+                f"🔑 Token for <b>{target}</b>: <code>{entry['token']}</code>{note}",
+                tokens_keyboard(),
+            )
+            return
+
         if data == "adm:tok:add":
             PENDING_SUB[user_id] = {"action": "tok_add"}
             edit(
                 chat_id,
                 message_id,
                 "🔑 Send the <b>user id</b> to create a new token.\n\n"
-                "To set your own token text, send: <code>user_id MY-TOKEN</code>\n\n"
+                "• not sure of the id? use 👥 <b>New users</b>\n"
+                "• your own token text: <code>user_id MY-TOKEN</code>\n\n"
                 "Send /cancel to abort.",
             )
             return
@@ -1203,7 +1263,8 @@ def handle_callback(cb):
         return
     if data == "subscription" and PRICES:
         text += "\n\n<b>Prices</b>\n" + "\n".join(
-            f"• {PLAN_NAME.get(k, k)}: <b>{v}</b>" for k, v in PRICES.items()
+            f"• {PLAN_NAME.get(k, k)}: <b>{PRICES[k]}</b>"
+            for k in [p[1] for p in PLANS] if k in PRICES
         )
     print(f"[cb] {chat_id}: {data}", flush=True)
     if data == "all_vpn":
