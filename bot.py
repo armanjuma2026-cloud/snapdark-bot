@@ -12,6 +12,7 @@ import json
 import os
 import re
 import secrets
+import concurrent.futures
 import subprocess
 import sys
 import threading
@@ -174,6 +175,8 @@ PRICES = _load_json(PRICES_FILE, {}) or dict(DEFAULT_PRICES)
 PENDING_EDIT = {}  # admin uid -> section key
 PENDING_SUB = {}   # admin uid -> {"action": ..., "plan": ...}
 PENDING_ACCEPT = {}  # admin uid -> user id whose token was just entered
+
+EX_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=4)  # keeps taps responsive
 
 
 def save_content():
@@ -1640,15 +1643,10 @@ def main():
             continue
         for upd in updates:
             offset = upd["update_id"] + 1
-            try:
-                if upd.get("message"):
-                    handle_message(upd["message"])
-                elif upd.get("channel_post"):
-                    handle_message(upd["channel_post"])
-                elif upd.get("callback_query"):
-                    handle_callback(upd["callback_query"])
-            except Exception as exc:
-                print(f"[error] {exc}", flush=True)
+            if upd.get("message") or upd.get("channel_post"):
+                EX_POOL.submit(handle_message, upd.get("message") or upd.get("channel_post"))
+            elif upd.get("callback_query"):
+                EX_POOL.submit(handle_callback, upd["callback_query"])
 
 
 if __name__ == "__main__":
