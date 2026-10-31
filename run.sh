@@ -2,6 +2,7 @@
 # Supervisor: keeps bot.py alive and recycles it every 10 minutes so a dead
 # long-poll socket can never freeze the bot.
 cd "$(dirname "$0")" || exit 1
+command -v termux-wake-lock >/dev/null && termux-wake-lock
 
 while true; do
     echo "--- $(date '+%F %T') start" >> supervisor.log
