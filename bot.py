@@ -241,22 +241,41 @@ def reload_content():
 
 
 # ------------------------------------------------------------- utilities
+_TG_TLS = threading.local()  # one persistent HTTPS connection per thread
+
+
+def _tg_conn():
+    conn = getattr(_TG_TLS, "conn", None)
+    if conn is None:
+        conn = http.client.HTTPSConnection("api.telegram.org", timeout=40)
+        _TG_TLS.conn = conn
+    return conn
+
+
 def call(method: str, **params):
-    url = API.format(token=TOKEN, method=method)
-    data = urllib.parse.urlencode(params).encode()
-    req = urllib.request.Request(url, data=data)
-    try:
-        with urllib.request.urlopen(req, timeout=40) as resp:
-            payload = json.load(resp)
-    except urllib.error.HTTPError as exc:
-        payload = json.loads(exc.read().decode() or "{}")
-    except Exception as exc:  # network hiccup
-        print(f"[warn] {method}: {exc}", flush=True)
-        return None
-    if not payload.get("ok"):
-        print(f"[warn] {method}: {payload.get('description')}", flush=True)
-        return None
-    return payload.get("result")
+    """POST to the Bot API over a keep-alive connection (TLS handshake once)."""
+    body = urllib.parse.urlencode(params)
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    for attempt in (1, 2):
+        try:
+            conn = _tg_conn()
+            conn.request("POST", f"/bot{TOKEN}/{method}", body=body, headers=headers)
+            resp = conn.getresponse()
+            payload = json.loads(resp.read().decode() or "{}")
+            if not payload.get("ok"):
+                print(f"[warn] {method}: {payload.get('description')}", flush=True)
+                return None
+            return payload.get("result")
+        except Exception as exc:
+            try:
+                _tg_conn().close()
+            except Exception:
+                pass
+            _TG_TLS.conn = None
+            if attempt == 2:
+                print(f"[warn] {method}: {exc}", flush=True)
+                return None
+            time.sleep(0.5)
 
 
 def send(chat_id, text, markup=None):
