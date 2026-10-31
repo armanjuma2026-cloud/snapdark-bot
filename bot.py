@@ -152,7 +152,17 @@ SUBS = {int(k): v for k, v in _load_json(SUBS_FILE, {}).items()}
 COOLDOWNS = _load_json(COOLDOWN_FILE, {})
 
 ADMINS = [int(x) for x in _load_json(ADMINS_FILE, [])]
-PRICES = _load_json(PRICES_FILE, {})
+DEFAULT_PRICES = {
+    "test": "Free",
+    "1m": "150 BDT",
+    "2m": "280 BDT",
+    "3m": "400 BDT",
+    "4m": "500 BDT",
+    "5m": "600 BDT",
+    "6m": "700 BDT",
+    "12m": "1200 BDT",
+}
+PRICES = _load_json(PRICES_FILE, {}) or dict(DEFAULT_PRICES)
 
 PENDING_EDIT = {}  # admin uid -> section key
 PENDING_SUB = {}   # admin uid -> {"action": ..., "plan": ...}
