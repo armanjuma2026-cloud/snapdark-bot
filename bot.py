@@ -546,6 +546,7 @@ def main_keyboard():
             row = []
     if row:
         rows.append(row)
+    rows.append([{"text": "🔑 My Token", "callback_data": "mytoken"}])
     rows.append([{"text": "💬 Admin Contact", "url": ADMIN_URL}])
     return {"inline_keyboard": rows}
 
@@ -1230,6 +1231,26 @@ def handle_callback(cb):
             return
         call("answerCallbackQuery", callback_query_id=cb["id"])
         edit(chat_id, message_id, WELCOME, main_keyboard())
+        return
+
+    if data == "mytoken":
+        entry = ensure_user(user_id)
+        call("answerCallbackQuery", callback_query_id=cb["id"], text="Token ready")
+        exp = sub_expiry(user_id)
+        if is_owner(user_id):
+            state = "👑 Owner account — unlimited access"
+        elif exp > time.time():
+            state = "✅ Active until " + time.strftime("%Y-%m-%d %H:%M", time.localtime(exp))
+        else:
+            state = "⏳ Not active yet — send this token to the admin"
+        edit(
+            chat_id,
+            message_id,
+            f"🔑 <b>Your token</b>\n\n<code>{entry['token']}</code>\n\n{state}\n\n"
+            f"Tap the token to copy it, then send it to {ADMIN_USERNAME} to activate "
+            "your subscription.",
+            back_keyboard(),
+        )
         return
 
     if not has_access(user_id):
