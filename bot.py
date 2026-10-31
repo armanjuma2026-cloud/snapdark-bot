@@ -10,6 +10,7 @@ import html
 import http.server
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -309,10 +310,13 @@ def vpn_keyboard():
     return {"inline_keyboard": rows}
 
 
-def newest_json(started, extra_dirs=()):
-    dirs = ["/sdcard/VPNs", "/sdcard", os.path.expanduser("~"), *extra_dirs]
-    best, best_m = None, 0
-    for d in dirs:
+JSON_DIRS = ("/sdcard/VPNs", "/sdcard", os.path.expanduser("~"))
+
+
+def snapshot_json(extra_dirs=()):
+    """(path -> (mtime, size)) for every JSON we could confuse with a fresh build."""
+    seen = {}
+    for d in (*JSON_DIRS, *extra_dirs):
         if not os.path.isdir(d):
             continue
         try:
@@ -324,11 +328,36 @@ def newest_json(started, extra_dirs=()):
                 continue
             p = os.path.join(d, fn)
             try:
-                m = os.path.getmtime(p)
+                seen[p] = (os.path.getmtime(p), os.path.getsize(p))
+            except OSError:
+                pass
+    return seen
+
+
+def newest_json(started, seen, extra_dirs=()):
+    """Only accept a JSON that is NEW or CHANGED since the snapshot (no stale files)."""
+    best, best_m = None, 0
+    for d in (*JSON_DIRS, *extra_dirs):
+        if not os.path.isdir(d):
+            continue
+        try:
+            entries = os.listdir(d)
+        except OSError:
+            continue
+        for fn in entries:
+            if not fn.lower().endswith(".json"):
+                continue
+            p = os.path.join(d, fn)
+            try:
+                st = os.stat(p)
             except OSError:
                 continue
-            if m >= started and m > best_m and os.path.getsize(p) > 32:
-                best, best_m = p, m
+            if st.st_size <= 32 or st.st_mtime < started:
+                continue
+            if seen.get(p) == (st.st_mtime, st.st_size):
+                continue  # untouched file from an earlier run
+            if st.st_mtime > best_m:
+                best, best_m = p, st.st_mtime
     return best
 
 
@@ -357,7 +386,9 @@ def build_vpn(chat_id, key):
     try:
         send(chat_id, f"⏳ Building <b>{spec['name']}</b> live config…\nThis can take up to a minute.")
         script, base = script_path(spec["script"])
-        started = time.time() - 3
+        reason = ""
+        seen = snapshot_json((base,))
+        started = time.time() - 1
         ok = False
         if script:
             try:
@@ -368,15 +399,19 @@ def build_vpn(chat_id, key):
                     stdin=subprocess.DEVNULL,
                     timeout=120,
                 )
-                tail = (proc.stdout or b"").decode(errors="replace").strip().splitlines()[-2:]
-                print(f"[vpn] {key} rc={proc.returncode} {' | '.join(tail)}", flush=True)
+                out_txt = (proc.stdout or b"").decode(errors="replace").strip().splitlines()[-2:]
+                err_txt = (proc.stderr or b"").decode(errors="replace").strip().splitlines()[-2:]
+                print(f"[vpn] {key} rc={proc.returncode} {' | '.join(out_txt)}", flush=True)
+                for e in err_txt:
+                    print(f"[vpn-err] {key} {e}", flush=True)
+                reason = (err_txt or out_txt or [""])[-1]
                 ok = proc.returncode == 0
             except Exception as exc:
                 print(f"[vpn] {key} error: {exc}", flush=True)
         else:
             print(f"[vpn] {key} script missing", flush=True)
 
-        out = newest_json(started, (base,)) if ok else None
+        out = newest_json(started, seen, (base,)) if ok else None
         if out:
             size = os.path.getsize(out)
             sent = send_document(
@@ -389,12 +424,14 @@ def build_vpn(chat_id, key):
             if sent and not admin:
                 mark_cooldown(chat_id, key)
         else:
-            send(
-                chat_id,
+            msg = (
                 f"❌ <b>{spec['name']}</b>: could not build the config right now.\n"
-                "The app may be offline or the script needs updating.",
-                vpn_keyboard(),
+                "The app may be offline or the script needs updating."
             )
+            if admin and reason:
+                clean = re.sub(r"\\x1b\\[[0-9;]*m", "", reason).strip()[:180]
+                msg += f"\n\n<code>{html.escape(clean)}</code>"
+            send(chat_id, msg, vpn_keyboard())
     finally:
         RUNNING.discard(chat_id)
 
