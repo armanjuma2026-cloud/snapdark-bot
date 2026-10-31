@@ -178,6 +178,9 @@ PENDING_ACCEPT = {}  # admin uid -> user id whose token was just entered
 
 EX_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=4)  # keeps taps responsive
 
+HELP_MODE = set()   # user ids currently chatting directly with the admin
+RELAY_MAP = {}      # admin chat message_id -> user id (to route admin replies)
+
 
 def save_content():
     _save_json(CONTENT_FILE, TEXTS)
@@ -893,6 +896,7 @@ def handle_message(msg):
     user = msg.get("from") or {}
     user_id = user.get("id")
     text = (msg.get("text") or "").strip()
+    user_msg_id = msg.get("message_id", 0)
     name = html.escape(user.get("first_name") or "there")
 
     # --- admin editing a section text
@@ -906,6 +910,25 @@ def handle_message(msg):
         save_content()
         print(f"[admin] {user_id} edited {key}", flush=True)
         send(chat_id, f"✅ <b>{LABELS[key]}</b> updated.\n\nPreview:\n{text}", admin_keyboard())
+        return
+
+    # --- admin reply routing (Help Line): reply to a support header -> delivered to user
+    reply_id = (msg.get("reply_to_message") or {}).get("message_id", 0)
+    if user_id == OWNER_ID and reply_id in RELAY_MAP:
+        target_user = RELAY_MAP[reply_id]
+        ok = call(
+            "copyMessage",
+            chat_id=target_user,
+            from_chat_id=chat_id,
+            message_id=user_msg_id,
+        )
+        if ok:
+            RELAY_MAP.pop(reply_id, None)
+            RELAY_MAP[ok["message_id"]] = target_user
+            send(chat_id, f"✅ Delivered to <code>{target_user}</code>.")
+            print(f"[help] admin -> {target_user} delivered", flush=True)
+        else:
+            send(chat_id, "⚠️ Could not deliver (user may have blocked the bot).")
         return
 
     # --- admin giving / removing / checking a subscription
@@ -1155,6 +1178,37 @@ def handle_message(msg):
             f"Subscription & support: {ADMIN_USERNAME}",
             back_keyboard(),
         )
+    elif user_id in HELP_MODE and not text.startswith("/"):
+        if text.startswith("/cancel"):
+            HELP_MODE.discard(user_id)
+            send(chat_id, "🔕 Support chat closed. Use the menu anytime.", main_keyboard(user_id))
+            return
+        header = send(
+            OWNER_ID,
+            "✉️ <b>Support message</b>\n"
+            f"👤 <b>{html.escape(name)}</b> • ID: <code>{user_id}</code>\n\n"
+            "↩️ Reply to THIS message to answer the user.",
+        )
+        fwd = call(
+            "forwardMessage",
+            chat_id=OWNER_ID,
+            from_chat_id=chat_id,
+            message_id=user_msg_id or 0,
+        )
+        if header and fwd:
+            RELAY_MAP[header["message_id"]] = user_id
+            RELAY_MAP[fwd["message_id"]] = user_id
+            send(
+                chat_id,
+                "✅ <b>Sent to the admin.</b>\n"
+                "You can keep typing here — replies arrive in this chat.",
+                back_keyboard(),
+            )
+            print(f"[help] {user_id} -> admin", flush=True)
+        else:
+            send(chat_id, "⚠️ Could not reach the admin right now — try again.", back_keyboard())
+        return
+
     elif is_admin(user_id) and re.fullmatch(r"SK-[A-Z0-9]{4}-[A-Z0-9]{4}", text.strip().upper()):
         wanted = text.strip().strip("<>,;\n").upper()
         print(f"[tok-auto] {user_id} typed {wanted}", flush=True)
@@ -1633,6 +1687,16 @@ def handle_callback(cb):
         edit(chat_id, message_id, WELCOME, main_keyboard(user_id))
         return
 
+    if data == "help_write":
+        HELP_MODE.add(user_id)
+        call("answerCallbackQuery", callback_query_id=cb["id"], text="Connecting you…")
+        send(
+            chat_id,
+            "✉️ <b>Write your message</b> — it goes straight to the admin",
+            {"force_reply": True, "input_field_placeholder": "Write your question to reply…"},
+        )
+        return
+
     if data == "mytoken":
         entry = ensure_user(user_id)
         call("answerCallbackQuery", callback_query_id=cb["id"], text="Token ready")
@@ -1698,6 +1762,20 @@ def handle_callback(cb):
             for k in [p[1] for p in PLANS] if k in PRICES
         )
     print(f"[cb] {chat_id}: {data}", flush=True)
+    if data == "help_line":
+        kb = section_back_keyboard()
+        kb["inline_keyboard"].insert(
+            0, [{"text": "✉️ Message the Admin", "callback_data": "help_write"}]
+        )
+        text += (
+            "\n\n✉️ <b>Direct chat with the admin</b>\n"
+            "• tap ✉️ <b>Message the Admin</b>\n"
+            "• type your problem\n"
+            "• the answer comes back right here\n\n"
+            f"Or message directly: {ADMIN_USERNAME}"
+        )
+        edit(chat_id, message_id, text, kb)
+        return
     if data == "all_vpn":
         text += "\n\n👇 <b>Tap an app</b> to get its live config JSON."
         edit(chat_id, message_id, text, vpn_keyboard())
