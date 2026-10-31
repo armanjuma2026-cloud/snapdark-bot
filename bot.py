@@ -605,10 +605,11 @@ def admin_keyboard():
     )
     rows.append(
         [
+            {"text": "📊 Stats", "callback_data": "adm:stats"},
             {"text": "👁 Preview Menu", "callback_data": "menu"},
-            {"text": "✖️ Close", "callback_data": "adm:close"},
         ]
     )
+    rows.append([{"text": "✖️ Close", "callback_data": "adm:close"}])
     return {"inline_keyboard": rows}
 
 
@@ -1045,6 +1046,32 @@ def handle_callback(cb):
             print(f"[deny] {user_id} tried {data}", flush=True)
             return
         call("answerCallbackQuery", callback_query_id=cb["id"])
+
+        if data == "adm:stats":
+            now = time.time()
+            active = sum(1 for e in SUBS.values() if e.get("exp", 0) > now)
+            expired = sum(
+                1 for e in SUBS.values()
+                if 0 < e.get("exp", 0) <= now
+            )
+            fresh = len(SUBS) - active - expired
+            cool_users = len(COOLDOWNS)
+            cool_used = sum(len(v) for v in COOLDOWNS.values())
+            tokens_on = sum(1 for e in SUBS.values() if e.get("token"))
+            body = (
+                "📊 <b>SnapDark — Admin Stats</b>\n\n"
+                f"👥 Users started: <b>{len(SUBS)}</b>\n"
+                f"• active subscriptions: <b>{active}</b>\n"
+                f"• expired: <b>{expired}</b>\n"
+                f"• no subscription yet: <b>{fresh}</b>\n\n"
+                f"📡 VPN apps installed: <b>{len(VPNS)}</b>\n"
+                f"⏳ Cooldowns: <b>{cool_used} locked builds</b> over {cool_users} users\n\n"
+                f"🔑 Tokens with value: <b>{tokens_on}</b>\n"
+                f"💰 Prices set: <b>{len(PRICES)}/{len(PLANS)}</b>\n"
+                f"🤖 Version: <code>{current_commit()}</code>"
+            )
+            edit(chat_id, message_id, body, admin_keyboard())
+            return
 
         if data == "adm:close":
             PENDING_EDIT.pop(user_id, None)
