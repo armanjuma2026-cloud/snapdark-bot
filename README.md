@@ -9,8 +9,10 @@ Pure Python 3 standard library, no pip packages needed.
 - **Tokens**: every user gets a unique `SK-XXXX-XXXX` token automatically on first `/start`.
 - **Subscriptions**: admin gives/extends/removes plans per user — test 30 min, 1–6 months, 1 year.
 - **Auto expiry**: access is checked on every interaction; expired users are blocked instantly.
-- **Admin panel** (`/admin`, owner only): edit section texts, manage subscriptions, manage tokens.
+- **Admin panel** (`/admin`): edit section texts, subscriptions, tokens, prices, broadcast, extra admins.
+- **Hot reload**: `content.json` edits apply on the next interaction, no restart needed.
 - **Supervisor** (`run.sh`): keeps the bot alive and recycles it every 10 minutes.
+- **runit service**: `snapdark` service for auto-start on Termux boot.
 
 ## Setup
 
@@ -43,7 +45,8 @@ python3 -u bot.py
 | `/menu` | subscribers | main menu |
 | `/help` | everyone | command list |
 | `/ping` | everyone | liveness check |
-| `/admin` | owner | admin panel |
+| `/admin` | admins | admin panel |
+| `/panel` | admins | alias of `/admin` |
 | `/cancel` | owner | abort a pending edit |
 
 ## Admin panel
@@ -54,12 +57,17 @@ python3 -u bot.py
 ✏️ Help Line         ✏️ Subscription
 ✏️ Expire Date       ✏️ New Apps Decode
 🗓 Subscriptions      🔑 Tokens
+📣 Broadcast         💰 Prices
+👤 Admins
 👁 Preview Menu      ✖️ Close
 ```
 
 - **Subscriptions** → give/extend, remove, check a user, list active users.
 - **Tokens** → list, add/regenerate (`user_id` or `user_id MY-TOKEN`), remove.
 - **✏️ sections** → send new text, HTML allowed (`<b>`, `<i>`, `<a href>`).
+- **💰 Prices** → per plan price text, appended to the Subscription section.
+- **📣 Broadcast** → send one message to every known user (HTML allowed).
+- **👤 Admins** → add/remove extra admin ids (owner only).
 
 ## Files
 
@@ -70,7 +78,26 @@ python3 -u bot.py
 | `token.txt` | bot token | **no** (gitignored) |
 | `content.json` | edited section texts | no |
 | `subs.json` | tokens + subscriptions | no |
+| `prices.json` | plan prices | no |
+| `admins.json` | extra admin ids | no |
 | `*.log` | logs | no |
+
+## Service (auto start)
+
+```bash
+pkg install runit
+mkdir -p ~/.termux/boot
+# boot script already at ~/.termux/boot/snapdark.sh (needs Termux:Boot app)
+export SVDIR=$PREFIX/var/service
+sv status snapdark     # run: snapdark: (pid ...)
+sv restart snapdark    # or: sv down snapdark / sv up snapdark
+```
+
+## Sync to GitHub
+
+```bash
+./sync.sh "your commit message"   # commit + push main
+```
 
 ## Notes
 

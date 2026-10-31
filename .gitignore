@@ -8,3 +8,7 @@ content.json
 *.log
 __pycache__/
 *.pyc
+
+# config
+admins.json
+prices.json

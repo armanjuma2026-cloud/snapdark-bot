@@ -22,6 +22,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TOKEN_FILE = os.path.join(HERE, "token.txt")
 CONTENT_FILE = os.path.join(HERE, "content.json")
 SUBS_FILE = os.path.join(HERE, "subs.json")
+ADMINS_FILE = os.path.join(HERE, "admins.json")
+PRICES_FILE = os.path.join(HERE, "prices.json")
 
 # ---------------------------------------------------------------- config
 OWNER_ID = int(os.environ.get("SNAPDARK_OWNER_ID", "5576391405"))
@@ -113,6 +115,9 @@ TEXTS = dict(DEFAULTS)
 TEXTS.update(_load_json(CONTENT_FILE, {}))
 SUBS = {int(k): v for k, v in _load_json(SUBS_FILE, {}).items()}
 
+ADMINS = [int(x) for x in _load_json(ADMINS_FILE, [])]
+PRICES = _load_json(PRICES_FILE, {})
+
 PENDING_EDIT = {}  # admin uid -> section key
 PENDING_SUB = {}   # admin uid -> {"action": ..., "plan": ...}
 
@@ -123,6 +128,33 @@ def save_content():
 
 def save_subs():
     _save_json(SUBS_FILE, {str(k): v for k, v in SUBS.items()})
+
+
+def save_admins():
+    _save_json(ADMINS_FILE, ADMINS)
+
+
+def save_prices():
+    _save_json(PRICES_FILE, PRICES)
+
+
+_CONTENT_MTIME = 0.0
+
+
+def reload_content():
+    """Pick up manual edits of content.json without restarting."""
+    global _CONTENT_MTIME
+    try:
+        mtime = os.stat(CONTENT_FILE).st_mtime_ns
+    except OSError:
+        return
+    if mtime == _CONTENT_MTIME:
+        return
+    _CONTENT_MTIME = mtime
+    fresh = dict(DEFAULTS)
+    fresh.update(_load_json(CONTENT_FILE, {}))
+    TEXTS.clear()
+    TEXTS.update(fresh)
 
 
 # ------------------------------------------------------------- utilities
@@ -173,6 +205,10 @@ def edit(chat_id, message_id, text, markup=None):
 
 def is_owner(user_id) -> bool:
     return user_id == OWNER_ID
+
+
+def is_admin(user_id) -> bool:
+    return is_owner(user_id) or user_id in ADMINS
 
 
 TOKEN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -288,6 +324,13 @@ def admin_keyboard():
     )
     rows.append(
         [
+            {"text": "📣 Broadcast", "callback_data": "adm:cast"},
+            {"text": "💰 Prices", "callback_data": "adm:prices"},
+        ]
+    )
+    rows.append([{"text": "👤 Admins", "callback_data": "adm:admins"}])
+    rows.append(
+        [
             {"text": "👁 Preview Menu", "callback_data": "menu"},
             {"text": "✖️ Close", "callback_data": "adm:close"},
         ]
@@ -322,6 +365,30 @@ def subs_keyboard():
     }
 
 
+def prices_keyboard():
+    rows, row = [], []
+    for label, key, _ in PLANS:
+        row.append({"text": label, "callback_data": "adm:price:" + key})
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([{"text": "⬅️ Back", "callback_data": "adm:panel"}])
+    return {"inline_keyboard": rows}
+
+
+def admins_keyboard():
+    return {
+        "inline_keyboard": [
+            [{"text": "📋 List admins", "callback_data": "adm:adm:list"}],
+            [{"text": "➕ Add admin", "callback_data": "adm:adm:add"}],
+            [{"text": "➖ Remove admin", "callback_data": "adm:adm:del"}],
+            [{"text": "⬅️ Back", "callback_data": "adm:panel"}],
+        ]
+    }
+
+
 def tokens_keyboard():
     return {
         "inline_keyboard": [
@@ -337,6 +404,8 @@ WELCOME = "👋 <b>Welcome to SnapDark</b>\n\nChoose an option from the menu bel
 ADMIN_PANEL = "🛠 <b>Admin Panel</b>\n\nSections, subscriptions and access — all here."
 SUB_PANEL = "🗓 <b>Subscriptions</b>\n\nAdd, extend, remove or check any user."
 TOKEN_PANEL = "🔑 <b>Tokens</b>\n\nOne token per user, created automatically on join."
+PRICE_PANEL = "💰 <b>Prices</b>\n\nTap a plan and send its price text."
+ADMINS_PANEL = "👤 <b>Admins</b>\n\nExtra admin ids (owner always has access)."
 
 
 # --------------------------------------------------------------- users
@@ -402,6 +471,7 @@ def extract_user_id(msg, text):
 
 
 def handle_message(msg):
+    reload_content()
     chat_id = msg["chat"]["id"]
     user = msg.get("from") or {}
     user_id = user.get("id")
@@ -427,7 +497,33 @@ def handle_message(msg):
         action = state.get("action")
         if text.startswith("/cancel"):
             PENDING_SUB.pop(user_id, None)
-            send(chat_id, "❎ Cancelled.", subs_keyboard())
+            send(chat_id, "❎ Cancelled.", admin_keyboard())
+            return
+        if action == "broadcast":
+            PENDING_SUB.pop(user_id, None)
+            targets = sorted(SUBS.keys())
+            sent = failed = 0
+            for uid in targets:
+                if uid == user_id:
+                    continue
+                if send(uid, text, back_keyboard()):
+                    sent += 1
+                else:
+                    failed += 1
+                time.sleep(0.05)
+            print(f"[cast] {user_id}: {sent} ok, {failed} failed", flush=True)
+            send(chat_id, f"📣 Broadcast done.\n✅ {sent} delivered\n⚠️ {failed} failed", admin_keyboard())
+            return
+        if action == "price":
+            plan = state.get("plan")
+            PENDING_SUB.pop(user_id, None)
+            if plan not in PLAN_SECONDS:
+                send(chat_id, "⚠️ Plan lost, try again.", prices_keyboard())
+                return
+            PRICES[plan] = text
+            save_prices()
+            print(f"[price] {plan} = {text}", flush=True)
+            send(chat_id, f"✅ Price for <b>{PLAN_NAME[plan]}</b> set to <b>{text}</b>.", prices_keyboard())
             return
         target = extract_user_id(msg, text)
         if target is None:
@@ -438,6 +534,28 @@ def handle_message(msg):
             )
             return
         PENDING_SUB.pop(user_id, None)
+        if action in ("admin_add", "admin_del"):
+            if not is_owner(user_id):
+                send(chat_id, "⛔️ Only the owner can manage admins.", admin_keyboard())
+                return
+            if action == "admin_add":
+                if target == OWNER_ID or target in ADMINS:
+                    send(chat_id, f"ℹ️ {target} is already an admin.", admins_keyboard())
+                else:
+                    ADMINS.append(target)
+                    save_admins()
+                    print(f"[admin] {user_id} added admin {target}", flush=True)
+                    send(chat_id, f"✅ <b>{target}</b> is now an admin.", admins_keyboard())
+                    send(target, "🛠 You are now an admin. Use /admin to open the panel.")
+            else:
+                if target in ADMINS:
+                    ADMINS.remove(target)
+                    save_admins()
+                    print(f"[admin] {user_id} removed admin {target}", flush=True)
+                    send(chat_id, f"✅ <b>{target}</b> removed from admins.", admins_keyboard())
+                else:
+                    send(chat_id, f"ℹ️ {target} is not an admin.", admins_keyboard())
+            return
         if action in ("tok_add", "tok_del"):
             if action == "tok_del":
                 entry = SUBS.get(target)
@@ -528,7 +646,7 @@ def handle_message(msg):
         else:
             access_denied(chat_id)
     elif text.startswith("/admin") or text.startswith("/panel"):
-        if is_owner(user_id):
+        if is_admin(user_id):
             PENDING_EDIT.pop(user_id, None)
             PENDING_SUB.pop(user_id, None)
             send(chat_id, ADMIN_PANEL, admin_keyboard())
@@ -553,6 +671,7 @@ def handle_message(msg):
 
 
 def handle_callback(cb):
+    reload_content()
     msg = cb.get("message") or {}
     chat_id = (msg.get("chat") or {}).get("id")
     message_id = msg.get("message_id")
@@ -564,7 +683,7 @@ def handle_callback(cb):
 
     # ---- admin panel routes
     if data.startswith("adm:"):
-        if not is_owner(user_id):
+        if not is_admin(user_id):
             call("answerCallbackQuery", callback_query_id=cb["id"], text="Admin only", show_alert=True)
             print(f"[deny] {user_id} tried {data}", flush=True)
             return
@@ -685,6 +804,68 @@ def handle_callback(cb):
             )
             return
 
+        if data == "adm:cast":
+            PENDING_SUB[user_id] = {"action": "broadcast"}
+            PENDING_EDIT.pop(user_id, None)
+            edit(
+                chat_id,
+                message_id,
+                "📣 Send the message to broadcast to all users.\n\n"
+                "HTML allowed. Send /cancel to abort.",
+            )
+            return
+
+        if data == "adm:prices":
+            PENDING_SUB.pop(user_id, None)
+            lines = ["💰 <b>Prices</b>\n"]
+            for label, key, _ in PLANS:
+                lines.append(f"• {PLAN_NAME[key]}: {PRICES.get(key) or 'not set'}")
+            lines.append("\nTap a plan to set its price.")
+            edit(chat_id, message_id, "\n".join(lines), prices_keyboard())
+            return
+
+        if data.startswith("adm:price:"):
+            plan = data.split("adm:price:", 1)[1]
+            if plan not in PLAN_SECONDS:
+                edit(chat_id, message_id, "Unknown plan.", prices_keyboard())
+                return
+            PENDING_SUB[user_id] = {"action": "price", "plan": plan}
+            edit(
+                chat_id,
+                message_id,
+                f"💰 Price for <b>{PLAN_NAME[plan]}</b>\n\nSend the price text, e.g. "
+                "<code>150 BDT</code> or <code>Free</code>.\n\nSend /cancel to abort.",
+            )
+            return
+
+        if data == "adm:admins":
+            if not is_owner(user_id):
+                edit(chat_id, message_id, "⛔️ Only the owner can manage admins.", admin_keyboard())
+                return
+            edit(chat_id, message_id, ADMINS_PANEL, admins_keyboard())
+            return
+
+        if data == "adm:adm:list":
+            body = "👤 <b>Admins</b>\n\n" + "\n".join(
+                [f"• <code>{OWNER_ID}</code> — owner"] + [f"• <code>{a}</code>" for a in ADMINS]
+            )
+            edit(chat_id, message_id, body, admins_keyboard())
+            return
+
+        if data in ("adm:adm:add", "adm:adm:del"):
+            if not is_owner(user_id):
+                edit(chat_id, message_id, "⛔️ Only the owner can manage admins.", admin_keyboard())
+                return
+            act = "admin_add" if data.endswith("add") else "admin_del"
+            PENDING_SUB[user_id] = {"action": act}
+            edit(
+                chat_id,
+                message_id,
+                "👤 Send the <b>user id</b> " + ("to add as admin." if act == "admin_add" else "to remove from admins.") +
+                "\n\nSend /cancel to abort.",
+            )
+            return
+
         edit(chat_id, message_id, ADMIN_PANEL, admin_keyboard())
         return
 
@@ -732,6 +913,10 @@ def handle_callback(cb):
     if text is None:
         edit(chat_id, message_id, "Unknown option.", back_keyboard())
         return
+    if data == "subscription" and PRICES:
+        text += "\n\n<b>Prices</b>\n" + "\n".join(
+            f"• {PLAN_NAME.get(k, k)}: <b>{v}</b>" for k, v in PRICES.items()
+        )
     print(f"[cb] {chat_id}: {data}", flush=True)
     edit(chat_id, message_id, text, section_back_keyboard())
 
