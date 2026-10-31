@@ -99,7 +99,7 @@ If the live run fails, the last cached JSON is sent with a warning. Subscription
 
 ## Cloud deploy — fps.ms (free Telegram-bot hosting)
 1. fps.ms -> Deploy Container -> Python container.
-2. Startup tab: entry file `app.py`, Git Repo Address `https://github.com/armanjera2026-cloud/snapdark-bot`, Auto Update ON -> Reinstall Server.
+2. Startup tab: entry file `app.py`, Git Repo Address `https://github.com/armanjuma2026-cloud/snapdark-bot`, Auto Update ON -> Reinstall Server.
 3. Files tab: create `.env` with:
    TELEGRAM_BOT_TOKEN=... (bot token)
    SNAPDARK_OWNER_ID=5576391405
