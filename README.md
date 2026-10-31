@@ -48,6 +48,7 @@ python3 -u bot.py
 
 Each user may refresh **the same app once every 8 hours**; other apps stay available.
 Cooldowns live in `cooldowns.json` and can be reset from the admin panel (`♻️ Cooldowns`).
+Admins and the owner are exempt — they can pull any config any number of times.
 
 If the live run fails, the last cached JSON is sent with a warning. Subscription is checked first.
 

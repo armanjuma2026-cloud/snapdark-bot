@@ -305,7 +305,8 @@ def build_vpn(chat_id, key):
     if chat_id in RUNNING:
         send(chat_id, "⏳ Still building the previous config, please wait.")
         return
-    left = cooldown_left(chat_id, key)
+    admin = is_admin(chat_id)
+    left = 0 if admin else cooldown_left(chat_id, key)
     if left > 0:
         send(
             chat_id,
@@ -350,7 +351,7 @@ def build_vpn(chat_id, key):
                 f"🕒 {time.strftime('%Y-%m-%d %H:%M')}\n📦 {size/1024:.0f} KB\n"
                 f"⏳ Next refresh in 8h",
             )
-            if sent:
+            if sent and not admin:
                 mark_cooldown(chat_id, key)
         elif os.path.exists(out):
             sent = send_document(
