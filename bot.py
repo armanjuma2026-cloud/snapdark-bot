@@ -10,6 +10,7 @@ import html
 import json
 import os
 import secrets
+import subprocess
 import sys
 import threading
 import time
@@ -45,6 +46,30 @@ PLANS = [
 ]
 PLAN_SECONDS = {key: secs for _, key, secs in PLANS}
 PLAN_NAME = {key: label.split(" ", 1)[1] for label, key, _ in PLANS}
+
+SENSEI_DIR = "/storage/emulated/0/senseitunnel"
+VPNS = [
+    {
+        "key": "apna",
+        "name": "APNA VPN 3.9",
+        "script": "APNA VPN.py",
+        "out": "/sdcard/VPNs/APNA VPN ☠️.json",
+    },
+    {
+        "key": "mnrpro",
+        "name": "MNR TUNNEL PRO 3.2",
+        "script": "MNR TUNNEL PRO.py",
+        "out": "/sdcard/VPNs/MNR TUNNEL PRO VPN ☠️.json",
+    },
+    {
+        "key": "mnrplus",
+        "name": "MNR TUNNEL PLUS 3.4",
+        "script": "MNR TUNNEL PLUS.py",
+        "out": "/sdcard/VPNs/MNR TUNNEL PLUS VPN ☠️.json",
+    },
+]
+VPN_BY_KEY = {v["key"]: v for v in VPNS}
+RUNNING = set()  # uids currently generating a config
 
 MENU = [
     ("📁 All VPN List", "all_vpn"),
@@ -188,6 +213,113 @@ def send(chat_id, text, markup=None):
     return ok
 
 
+def send_document(chat_id, path, caption=None):
+    """Upload a file with multipart/form-data using stdlib only."""
+    boundary = "----snapdark" + secrets.token_hex(8)
+    chunks = []
+
+    def field(name, value):
+        chunks.append(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
+        )
+
+    field("chat_id", chat_id)
+    if caption:
+        field("caption", caption)
+        field("parse_mode", "HTML")
+    filename = os.path.basename(path)
+    chunks.append(
+        f'--{boundary}\r\nContent-Disposition: form-data; name="document"; filename="{filename}"\r\n'
+        "Content-Type: application/json\r\n\r\n".encode()
+    )
+    with open(path, "rb") as fh:
+        chunks.append(fh.read())
+    chunks.append(f"\r\n--{boundary}--\r\n".encode())
+    body = b"".join(chunks)
+
+    req = urllib.request.Request(
+        API.format(token=TOKEN, method="sendDocument"),
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    payload = None
+    for attempt in range(1, 4):
+        try:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                payload = json.load(resp)
+            break
+        except Exception as exc:
+            print(f"[warn] sendDocument attempt {attempt}: {exc}", flush=True)
+            time.sleep(2 * attempt)
+    if payload is None:
+        return None
+    if not payload.get("ok"):
+        print(f"[warn] sendDocument: {payload.get('description')}", flush=True)
+        return None
+    print(f"[doc] {chat_id}: {filename} ({os.path.getsize(path)} B)", flush=True)
+    return payload.get("result")
+
+
+def vpn_keyboard():
+    rows = [[{"text": "📡 " + v["name"], "callback_data": "vpn:" + v["key"]}] for v in VPNS]
+    rows.append([{"text": "⬅️ Menu", "callback_data": "menu"}])
+    return {"inline_keyboard": rows}
+
+
+def build_vpn(chat_id, key):
+    """Run the decryptor script and send the resulting JSON."""
+    spec = VPN_BY_KEY.get(key)
+    if not spec:
+        send(chat_id, "Unknown app.", vpn_keyboard())
+        return
+    if chat_id in RUNNING:
+        send(chat_id, "⏳ Still building the previous config, please wait.")
+        return
+    RUNNING.add(chat_id)
+    try:
+        send(chat_id, f"⏳ Building <b>{spec['name']}</b> live config…\nThis can take up to a minute.")
+        script = os.path.join(SENSEI_DIR, spec["script"])
+        started = time.time() - 2
+        out = spec["out"]
+        ok = False
+        if os.path.exists(script):
+            try:
+                proc = subprocess.run(
+                    [sys.executable, script],
+                    cwd=SENSEI_DIR,
+                    capture_output=True,
+                    timeout=240,
+                )
+                tail = (proc.stdout or b"").decode(errors="replace").strip().splitlines()[-3:]
+                print(f"[vpn] {key} rc={proc.returncode} {' | '.join(tail)}", flush=True)
+                ok = proc.returncode == 0
+            except Exception as exc:
+                print(f"[vpn] {key} error: {exc}", flush=True)
+        else:
+            print(f"[vpn] {key} script missing: {script}", flush=True)
+
+        fresh = os.path.exists(out) and os.path.getmtime(out) >= started
+        if fresh and ok:
+            size = os.path.getsize(out)
+            send_document(
+                chat_id,
+                out,
+                f"✅ <b>{spec['name']}</b> live config\n"
+                f"🕒 {time.strftime('%Y-%m-%d %H:%M')}\n📦 {size/1024:.0f} KB",
+            )
+        elif os.path.exists(out):
+            send_document(
+                chat_id,
+                out,
+                f"⚠️ Live build failed — sending cached copy\n"
+                f"🕒 {time.strftime('%Y-%m-%d %H:%M', time.localtime(os.path.getmtime(out)))}",
+            )
+        else:
+            send(chat_id, "❌ Could not build the config. The admin has been notified.", vpn_keyboard())
+    finally:
+        RUNNING.discard(chat_id)
+
+
 def edit(chat_id, message_id, text, markup=None):
     params = {
         "chat_id": chat_id,
@@ -310,7 +442,7 @@ def section_back_keyboard():
 def admin_keyboard():
     rows, row = [], []
     for label, data in MENU:
-        row.append({"text": "✏️ " + label.split(" ", 1)[1], "callback_data": "adm:edit:" + data})
+        row.append({"text": "📝 " + label.split(" ", 1)[1], "callback_data": "adm:edit:" + data})
         if len(row) == 2:
             rows.append(row)
             row = []
@@ -401,7 +533,11 @@ def tokens_keyboard():
 
 
 WELCOME = "👋 <b>Welcome to SnapDark</b>\n\nChoose an option from the menu below 👇"
-ADMIN_PANEL = "🛠 <b>Admin Panel</b>\n\nSections, subscriptions and access — all here."
+ADMIN_PANEL = (
+    "🛠 <b>Admin Panel</b>\n\n"
+    "📝 buttons <b>edit the text</b> of a section (they do not show it).\n"
+    "Tap 👁 Preview Menu to see what users see."
+)
 SUB_PANEL = "🗓 <b>Subscriptions</b>\n\nAdd, extend, remove or check any user."
 TOKEN_PANEL = "🔑 <b>Tokens</b>\n\nOne token per user, created automatically on join."
 PRICE_PANEL = "💰 <b>Prices</b>\n\nTap a plan and send its price text."
@@ -892,6 +1028,11 @@ def handle_callback(cb):
 
     call("answerCallbackQuery", callback_query_id=cb["id"])
 
+    if data.startswith("vpn:"):
+        key = data.split("vpn:", 1)[1]
+        threading.Thread(target=build_vpn, args=(chat_id, key), daemon=True).start()
+        return
+
     if data == "expire":
         entry = SUBS.get(user_id)
         if is_owner(user_id):
@@ -918,6 +1059,10 @@ def handle_callback(cb):
             f"• {PLAN_NAME.get(k, k)}: <b>{v}</b>" for k, v in PRICES.items()
         )
     print(f"[cb] {chat_id}: {data}", flush=True)
+    if data == "all_vpn":
+        text += "\n\n👇 <b>Tap an app</b> to get its live config JSON."
+        edit(chat_id, message_id, text, vpn_keyboard())
+        return
     edit(chat_id, message_id, text, section_back_keyboard())
 
 

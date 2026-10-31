@@ -6,6 +6,7 @@ Pure Python 3 standard library, no pip packages needed.
 ## Features
 
 - **Public menu** with 8 sections (inline buttons, 2 per row) + admin contact button.
+- **Live configs**: `📁 All VPN List` → tap an app → bot runs the decryptor and sends the JSON.
 - **Tokens**: every user gets a unique `SK-XXXX-XXXX` token automatically on first `/start`.
 - **Subscriptions**: admin gives/extends/removes plans per user — test 30 min, 1–6 months, 1 year.
 - **Auto expiry**: access is checked on every interaction; expired users are blocked instantly.
@@ -36,6 +37,16 @@ Or run once without the supervisor:
 ```bash
 python3 -u bot.py
 ```
+
+## VPN config delivery
+
+`📁 All VPN List` shows one button per decodable app. Tapping one:
+
+1. replies `⏳ Building … live config`
+2. runs the decryptor script from `/storage/emulated/0/senseitunnel/<app>.py`
+3. uploads the resulting JSON from `/sdcard/VPNs/` as a document
+
+If the live run fails, the last cached JSON is sent with a warning. Subscription is checked first.
 
 ## Commands
 
