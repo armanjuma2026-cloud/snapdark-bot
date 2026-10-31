@@ -43,8 +43,11 @@ python3 -u bot.py
 `📁 All VPN List` shows one button per decodable app. Tapping one:
 
 1. replies `⏳ Building … live config`
-2. runs the decryptor script from `/storage/emulated/0/senseitunnel/<app>.py`
+2. runs the decryptor from `scripts/<app>.py` (repo copy, fallback `/storage/emulated/0/senseitunnel/`)
 3. uploads the resulting JSON from `/sdcard/VPNs/` as a document
+
+Each user may refresh **the same app once every 8 hours**; other apps stay available.
+Cooldowns live in `cooldowns.json` and can be reset from the admin panel (`♻️ Cooldowns`).
 
 If the live run fails, the last cached JSON is sent with a warning. Subscription is checked first.
 
@@ -103,6 +106,19 @@ export SVDIR=$PREFIX/var/service
 sv status snapdark     # run: snapdark: (pid ...)
 sv restart snapdark    # or: sv down snapdark / sv up snapdark
 ```
+
+## Auto update from GitHub
+
+The running bot checks `origin/main` every 5 minutes (and 15 s after start). When a new commit
+appears it runs `git pull --ff-only` and restarts itself through the supervisor/runit service:
+
+```
+[update] b691cae -> fb2e8d5
+[update] code updated, restarting
+```
+
+Push a change and the device picks it up automatically. Disable with `SNAPDARK_NO_UPDATE=1`.
+`/version` shows the running commit.
 
 ## Sync to GitHub
 
