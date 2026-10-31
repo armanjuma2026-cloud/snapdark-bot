@@ -1488,6 +1488,7 @@ def main():
     threading.Thread(target=expire_watcher, daemon=True).start()
     offset = None
     last_beat = time.time()
+    last_ok = time.time()
     while True:
         params = {"timeout": 20}
         if offset is not None:
@@ -1495,8 +1496,12 @@ def main():
         updates = call("getUpdates", **params)
         if updates is None:
             print("[warn] poll failed, retrying", flush=True)
+            if time.time() - last_ok > 180:
+                print("[watchdog] no Telegram contact for 180s -> recycling", flush=True)
+                os._exit(0)
             time.sleep(2)
             continue
+        last_ok = time.time()
         if not updates:
             if time.time() - last_beat > 600:
                 last_beat = time.time()
