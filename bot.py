@@ -537,7 +537,7 @@ def access_denied(chat_id):
 
 
 # ------------------------------------------------------------- keyboards
-def main_keyboard():
+def main_keyboard(user_id=None):
     rows, row = [], []
     for label, data in MENU:
         row.append({"text": label, "callback_data": data})
@@ -547,6 +547,8 @@ def main_keyboard():
     if row:
         rows.append(row)
     rows.append([{"text": "🔑 My Token", "callback_data": "mytoken"}])
+    if user_id is not None and is_admin(user_id):
+        rows.append([{"text": "🛠 Admin Panel", "callback_data": "adm:panel"}])
     rows.append([{"text": "💬 Admin Contact", "url": ADMIN_URL}])
     return {"inline_keyboard": rows}
 
@@ -953,7 +955,7 @@ def handle_message(msg):
             send(
                 chat_id,
                 f"{WELCOME}\n\nHi <b>{name}</b>!\n{token_line}\nAccess: <b>{left}</b>",
-                main_keyboard(),
+                main_keyboard(user_id),
             )
         else:
             send(
@@ -965,7 +967,7 @@ def handle_message(msg):
             )
     elif text.startswith("/menu"):
         if has_access(user_id):
-            send(chat_id, WELCOME, main_keyboard())
+            send(chat_id, WELCOME, main_keyboard(user_id))
         else:
             access_denied(chat_id)
     elif text.startswith("/admin") or text.startswith("/panel"):
@@ -995,7 +997,7 @@ def handle_message(msg):
     else:
         print(f"[msg] {chat_id} {name}: {text[:120]}", flush=True)
         if has_access(user_id):
-            send(chat_id, "Please use the menu 👇", main_keyboard())
+            send(chat_id, "Please use the menu 👇", main_keyboard(user_id))
         else:
             access_denied(chat_id)
 
@@ -1302,7 +1304,7 @@ def handle_callback(cb):
             access_denied(chat_id)
             return
         call("answerCallbackQuery", callback_query_id=cb["id"])
-        edit(chat_id, message_id, WELCOME, main_keyboard())
+        edit(chat_id, message_id, WELCOME, main_keyboard(user_id))
         return
 
     if data == "mytoken":
