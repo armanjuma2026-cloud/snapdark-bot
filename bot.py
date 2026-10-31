@@ -166,6 +166,7 @@ PRICES = _load_json(PRICES_FILE, {}) or dict(DEFAULT_PRICES)
 
 PENDING_EDIT = {}  # admin uid -> section key
 PENDING_SUB = {}   # admin uid -> {"action": ..., "plan": ...}
+PENDING_ACCEPT = {}  # admin uid -> user id whose token was just entered
 
 
 def save_content():
@@ -869,11 +870,26 @@ def handle_message(msg):
                 )
                 return
             PENDING_SUB.pop(user_id, None)
+            PENDING_ACCEPT[user_id] = target
+            exp = sub_expiry(target)
+            status = (
+                "✅ active until " + time.strftime("%Y-%m-%d %H:%M", time.localtime(exp))
+                if exp > time.time()
+                else "⛔️ no active subscription"
+            )
             send(
                 chat_id,
-                f"✅ Token found!\n\n👤 User: <code>{target}</code>\n\n"
-                "Now choose the subscription plan:",
-                plans_keyboard(prefix=f"adm:accept:{target}:"),
+                f"🔎 <b>Token found</b>\n\n"
+                f"👤 User: <code>{target}</code>\n"
+                f"🔑 Token: <code>{wanted}</code>\n"
+                f"📊 Status: {status}\n\n"
+                "Accept this user?",
+                {
+                    "inline_keyboard": [[
+                        {"text": "✅ Accept", "callback_data": "adm:tok:ok"},
+                        {"text": "❌ Reject", "callback_data": "adm:tok:no"},
+                    ]]
+                },
             )
             return
         if action in ("tok_add", "tok_del"):
@@ -1110,14 +1126,34 @@ def handle_callback(cb):
 
         if data == "adm:tok:accept":
             PENDING_SUB[user_id] = {"action": "tok_accept"}
+            PENDING_ACCEPT.pop(user_id, None)
+            send(
+                chat_id,
+                "✅ <b>Accept token</b>\n\n"
+                "Paste the token the user sent you (example: <code>SK-AB12-CD34</code>) "
+                "in the box below 👇\n\n"
+                "Send /cancel to abort.",
+                {"force_reply": True, "input_field_placeholder": "Paste token here…"},
+            )
+            return
+
+        if data == "adm:tok:ok":
+            target = PENDING_ACCEPT.pop(user_id, None)
+            if not target:
+                edit(chat_id, message_id, "⚠️ Session expired, tap ✅ Accept token again.", tokens_keyboard())
+                return
             edit(
                 chat_id,
                 message_id,
-                "✅ <b>Accept token</b>\n\n"
-                "Send the token the user gave you (example: <code>SK-AB12-CD34</code>).\n\n"
-                "The bot will find the user, then you choose the subscription plan.\n\n"
-                "Send /cancel to abort.",
+                f"✅ Accepted <code>{target}</code>.\n\n"
+                "Now choose the <b>subscription plan</b>:",
+                plans_keyboard(prefix=f"adm:accept:{target}:"),
             )
+            return
+
+        if data == "adm:tok:no":
+            PENDING_ACCEPT.pop(user_id, None)
+            edit(chat_id, message_id, "❌ Token rejected — nothing was changed.", tokens_keyboard())
             return
 
         if data.startswith("adm:accept:"):
