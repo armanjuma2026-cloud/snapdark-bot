@@ -242,6 +242,7 @@ def reload_content():
 
 # ------------------------------------------------------------- utilities
 _TG_TLS = threading.local()  # one persistent HTTPS connection per thread
+LAST_TG_ERROR = ""           # last Telegram-side error description
 
 
 def _tg_conn():
@@ -263,7 +264,9 @@ def call(method: str, **params):
             resp = conn.getresponse()
             payload = json.loads(resp.read().decode() or "{}")
             if not payload.get("ok"):
-                print(f"[warn] {method}: {payload.get('description')}", flush=True)
+                global LAST_TG_ERROR
+                LAST_TG_ERROR = str(payload.get("description") or "")
+                print(f"[warn] {method}: {LAST_TG_ERROR}", flush=True)
                 return None
             return payload.get("result")
         except Exception as exc:
@@ -486,8 +489,12 @@ def edit(chat_id, message_id, text, markup=None):
     if markup is not None:
         params["reply_markup"] = json.dumps(markup)
     if call("editMessageText", **params) is None:
+        if "not modified" in LAST_TG_ERROR:
+            return  # same content, nothing to change
         params.pop("parse_mode", None)
         if call("editMessageText", **params) is None:
+            if "not modified" in LAST_TG_ERROR:
+                return
             send(chat_id, text, markup)
 
 
