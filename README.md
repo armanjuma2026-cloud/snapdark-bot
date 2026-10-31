@@ -97,6 +97,13 @@ If the live run fails, the last cached JSON is sent with a warning. Subscription
 | `admins.json` | extra admin ids | no |
 | `*.log` | logs | no |
 
+## Cloud deploy (runs without the phone)
+
+Dockerfile + Procfile are included; the bot also serves `GET /` on `$PORT` for health checks.
+
+Koyeb: Create Service -> GitHub -> this repo -> Builder: Dockerfile -> Port 8080.
+Env vars: `TELEGRAM_BOT_TOKEN`, `SNAPDARK_OWNER_ID`.
+
 ## Service (auto start)
 
 ```bash

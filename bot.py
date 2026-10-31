@@ -7,6 +7,7 @@ Data: content.json (section texts), subs.json (subscriptions).
 """
 
 import html
+import http.server
 import json
 import os
 import secrets
@@ -1185,9 +1186,32 @@ def update_watcher():
         time.sleep(300)
 
 
+def health_server():
+    """Tiny HTTP endpoint so cloud hosts (Koyeb/Render) see the service as healthy."""
+    port = int(os.environ.get("PORT", "8080"))
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = b"snapdark-bot ok"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    try:
+        http.server.ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    except Exception as exc:
+        print(f"[health] disabled: {exc}", flush=True)
+
+
 def main():
     print(f"bot started (owner {OWNER_ID}, {len(SUBS)} subs, {current_commit()})", flush=True)
     threading.Thread(target=update_watcher, daemon=True).start()
+    threading.Thread(target=health_server, daemon=True).start()
     threading.Thread(target=expire_watcher, daemon=True).start()
     offset = None
     last_beat = time.time()
