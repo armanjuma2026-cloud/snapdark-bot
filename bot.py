@@ -657,6 +657,9 @@ def tokens_keyboard():
     return {
         "inline_keyboard": [
             [{"text": "✅ Accept token", "callback_data": "adm:tok:accept"}],
+            [{"text": "👥 New users (no subscription)", "callback_data": "adm:tok:newlist"}],
+            [{"text": "➕ Create token by user id", "callback_data": "adm:tok:add"}],
+            [{"text": "🗑 Remove token", "callback_data": "adm:tok:del"}],
             [{"text": "📋 List tokens", "callback_data": "adm:tok:list"}],
             [{"text": "⬅️ Back", "callback_data": "adm:panel"}],
         ]
@@ -676,6 +679,11 @@ TOKEN_PANEL = (
     "✅ <b>Accept token</b> — the user sends you their token, you paste it here; "
     "the bot finds the user and shows the subscription plans. Pick a plan and "
     "their access is activated instantly.\n\n"
+    "👥 <b>New users</b> — users who started the bot but have no subscription; "
+    "tap a user to create a fresh token.\n"
+    "➕ <b>Create token by user id</b> — make/replace a token for any id "
+    "(send <code>id</code> or <code>id MY-TOKEN</code>).\n"
+    "🗑 <b>Remove token</b> — block a user's token.\n"
     "📋 <b>List tokens</b> — every user id, token and status."
 )
 PRICE_PANEL = "💰 <b>Prices</b>\n\nTap a plan and send its price text."
@@ -1038,6 +1046,62 @@ def handle_callback(cb):
                     lines.append(f"• <code>{uid}</code> — <code>{token}</code> — {status}")
                 body = "\n".join(lines[:50])
             edit(chat_id, message_id, body, tokens_keyboard())
+            return
+
+        if data == "adm:tok:newlist":
+            PENDING_SUB.pop(user_id, None)
+            now = time.time()
+            idle = [(uid, e) for uid, e in sorted(SUBS.items()) if e.get("exp", 0) <= now]
+            rows = []
+            for uid, e in idle[:40]:
+                label = f"{'🔑' if e.get('token') else '🚫'} {uid}"
+                rows.append([{"text": label, "callback_data": "adm:tok:new:" + uid}])
+            rows.append([{"text": "⬅️ Back", "callback_data": "adm:tokens"}])
+            body = (
+                f"👥 <b>Users without an active subscription: {len(idle)}</b>\n\n"
+                "Tap a user to create a new token for them."
+                if idle
+                else "👥 <b>No users without a subscription.</b>\n\nNobody has started the bot yet."
+            )
+            edit(chat_id, message_id, body, {"inline_keyboard": rows})
+            return
+
+        if data.startswith("adm:tok:new:"):
+            target = data.split("adm:tok:new:", 1)[1].strip()
+            entry = SUBS.get(target)
+            if entry is None:
+                entry = {"exp": 0, "plan": None, "created": time.time()}
+                SUBS[target] = entry
+            entry["token"] = gen_token()
+            save_subs()
+            print(f"[token] {user_id} created token for {target}", flush=True)
+            delivered = send(
+                target,
+                f"🔑 Your new token: <code>{entry['token']}</code>\n\n"
+                f"Send it to {ADMIN_USERNAME} to activate your subscription.",
+            )
+            note = "" if delivered else (
+                "\n\n⚠️ Could not message this user — they must press /start first."
+            )
+            edit(
+                chat_id,
+                message_id,
+                f"🔑 Token for <b>{target}</b>: <code>{entry['token']}</code>{note}",
+                tokens_keyboard(),
+            )
+            return
+
+        if data == "adm:tok:add":
+            PENDING_SUB[user_id] = {"action": "tok_add"}
+            edit(
+                chat_id,
+                message_id,
+                "➕ <b>Create token by user id</b>\n\n"
+                "Send the <b>user id</b> to create a new token.\n\n"
+                "• not sure of the id? use 👥 <b>New users</b>\n"
+                "• your own token text: <code>user_id MY-TOKEN</code>\n\n"
+                "Send /cancel to abort.",
+            )
             return
 
         if data == "adm:tok:accept":
