@@ -317,20 +317,24 @@ def send_document(chat_id, path, caption=None):
     chunks.append(f"\r\n--{boundary}--\r\n".encode())
     body = b"".join(chunks)
 
-    req = urllib.request.Request(
-        API.format(token=TOKEN, method="sendDocument"),
-        data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-    )
+    path_url = f"/bot{TOKEN}/sendDocument"
+    headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
     payload = None
     for attempt in range(1, 4):
         try:
-            with urllib.request.urlopen(req, timeout=180) as resp:
-                payload = json.load(resp)
+            conn = _tg_conn()
+            conn.request("POST", path_url, body=body, headers=headers)
+            resp = conn.getresponse()
+            payload = json.loads(resp.read().decode() or "{}")
             break
         except Exception as exc:
             print(f"[warn] sendDocument attempt {attempt}: {exc}", flush=True)
-            time.sleep(2 * attempt)
+            try:
+                _tg_conn().close()
+            except Exception:
+                pass
+            _TG_TLS.conn = None
+            time.sleep(1.5 * attempt)
     if payload is None:
         return None
     if not payload.get("ok"):
@@ -354,6 +358,25 @@ def vpn_keyboard():
 
 
 JSON_DIRS = ("/sdcard/VPNs", "/sdcard", os.path.expanduser("~"))
+CACHE_DIR = os.path.join(HERE, "cache")
+os.makedirs(CACHE_DIR, exist_ok=True)
+REFRESHING = set()  # keys currently being rebuilt in background
+
+
+def cached_path(key):
+    p = os.path.join(CACHE_DIR, key + ".json")
+    return p if os.path.isfile(p) and os.path.getsize(p) > 32 else None
+
+
+def cache_store(key, path):
+    try:
+        data = open(path, "rb").read()
+        with open(os.path.join(CACHE_DIR, key + ".json"), "wb") as fh:
+            fh.write(data)
+        return True
+    except OSError as exc:
+        print(f"[cache] store {key}: {exc}", flush=True)
+        return False
 
 
 def snapshot_json(extra_dirs=()):
@@ -404,6 +427,41 @@ def newest_json(started, seen, extra_dirs=()):
     return best
 
 
+def refresh_build(key):
+    """Rebuild an app silently in the background and refresh the cache."""
+    if key in REFRESHING:
+        return
+    REFRESHING.add(key)
+    try:
+        spec = VPN_BY_KEY.get(key)
+        if not spec:
+            return
+        script, base = script_path(spec["script"])
+        if not script:
+            return
+        seen = snapshot_json((base,))
+        started = time.time() - 1
+        try:
+            proc = subprocess.run(
+                [sys.executable, script],
+                cwd=base,
+                capture_output=True,
+                stdin=subprocess.DEVNULL,
+                timeout=120,
+            )
+        except Exception as exc:
+            print(f"[refresh] {key} error: {exc}", flush=True)
+            return
+        out = newest_json(started, seen, (base,)) if proc.returncode == 0 else None
+        if out:
+            cache_store(key, out)
+            print(f"[refresh] {key} cache updated ({os.path.getsize(out)//1024} KB)", flush=True)
+        else:
+            print(f"[refresh] {key} no fresh json (rc={proc.returncode})", flush=True)
+    finally:
+        REFRESHING.discard(key)
+
+
 def build_vpn(chat_id, key):
     """Run the decryptor script and send the JSON it produced."""
     spec = VPN_BY_KEY.get(key)
@@ -424,6 +482,24 @@ def build_vpn(chat_id, key):
             vpn_keyboard(),
         )
         print(f"[cool] {chat_id} {key} left={left}s", flush=True)
+        return
+    cached = cached_path(key)
+    if cached:
+        sent = send_document(
+            chat_id,
+            cached,
+            f"✅ <b>{spec['name']}</b> config (latest saved build)\n"
+            f"📦 {os.path.getsize(cached)/1024:.0f} KB\n"
+            "♻️ A fresh build is generating in the background.",
+        )
+        if sent and not admin:
+            mark_cooldown(chat_id, key)
+        if key not in REFRESHING:
+            threading.Thread(target=refresh_build, args=(key,), daemon=True).start()
+        return
+    if key in REFRESHING:
+        send(chat_id, f"⏳ <b>{spec['name']}</b> fresh build is already running — the new "
+             "JSON arrives automatically a moment early.", vpn_keyboard())
         return
     RUNNING.add(chat_id)
     try:
@@ -456,6 +532,7 @@ def build_vpn(chat_id, key):
 
         out = newest_json(started, seen, (base,)) if ok else None
         if out:
+            cache_store(key, out)
             size = os.path.getsize(out)
             sent = send_document(
                 chat_id,
@@ -467,6 +544,17 @@ def build_vpn(chat_id, key):
             if sent and not admin:
                 mark_cooldown(chat_id, key)
         else:
+            cached = cached_path(key)
+            if cached:
+                send_document(
+                    chat_id,
+                    cached,
+                    f"♻️ <b>{spec['name']}</b> — latest saved build\n"
+                    "(live rebuild failed this time; file below is from the last success)",
+                )
+                if not admin:
+                    mark_cooldown(chat_id, key)
+                return
             msg = (
                 f"❌ <b>{spec['name']}</b>: could not build the config right now.\n"
                 "The app may be offline or the script needs updating."
