@@ -20,6 +20,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+_builtin_print = print
+
+
+def print(*args, **kwargs):  # timestamp every log line
+    _builtin_print(time.strftime("%H:%M:%S"), *args, **kwargs)
+
+
 API = "https://api.telegram.org/bot{token}/{method}"
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOKEN_FILE = os.path.join(HERE, "token.txt")
