@@ -13,6 +13,7 @@ import os
 import re
 import secrets
 import shutil
+import fcntl
 import concurrent.futures
 import subprocess
 import sys
@@ -1958,6 +1959,14 @@ def health_server():
 
 
 def main():
+    # single-instance lock: any second copy exits immediately (no poller conflicts)
+    global _BOT_LOCK
+    _BOT_LOCK = open(os.path.join(HERE, "bot.lock"), "w")
+    try:
+        fcntl.flock(_BOT_LOCK, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print("[lock] another bot instance already polling -> exiting", flush=True)
+        os._exit(0)
     print(f"bot started (owner {OWNER_ID}, {len(SUBS)} subs, {current_commit()})", flush=True)
     threading.Thread(target=update_watcher, daemon=True).start()
     threading.Thread(target=health_server, daemon=True).start()
