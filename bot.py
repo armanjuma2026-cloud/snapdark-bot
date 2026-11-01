@@ -436,6 +436,7 @@ OFFLINE_APPS = [
     ("PStunnel", "Under maintenance"),
     ("SmartIP Tunnel", "Under maintenance"),
     ("Pw Tunnel Plus", "App imports profiles only — no server config"),
+    ("PingTunnel VPN", "Flutter app - manual server entry only"),
     ("SnapDarkTunnel Backup", "Under maintenance"),
 ]
 
