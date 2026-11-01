@@ -105,6 +105,7 @@ LABELS = {data: label.split(" ", 1)[1] for label, data in MENU}
 
 DEFAULTS = {
     "all_vpn": "<b>📁 All VPN List</b>\n\nTODO: add your full VPN app list here.",
+    "offline_list": "<b>🚫 Offline VPN List</b>",
     "developer": "<b>👨‍💻 Developer List</b>\n\nTODO: add developer names / channels here.",
     "paid": "<b>💎 Paid VPN List</b>\n\nTODO: add paid VPN apps here.",
     "free": "<b>🆓 Free VPN List</b>\n\nTODO: add free VPN apps here.",
