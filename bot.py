@@ -292,24 +292,41 @@ def reload_content():
 
 # ------------------------------------------------------------- utilities
 _TG_TLS = threading.local()  # one persistent HTTPS connection per thread
+_TG_TIMEOUT = 12              # fast-fail socket timeout for normal API calls
 LAST_TG_ERROR = ""           # last Telegram-side error description
 
 
 def _tg_conn():
     conn = getattr(_TG_TLS, "conn", None)
     if conn is None:
-        conn = http.client.HTTPSConnection("api.telegram.org", timeout=40)
+        conn = http.client.HTTPSConnection("api.telegram.org", timeout=_TG_TIMEOUT)
         _TG_TLS.conn = conn
     return conn
 
 
-def call(method: str, **params):
+def _tg_poll_conn():
+    # getUpdates long-polls server-side ~20s -> needs a bigger socket timeout
+    conn = getattr(_TG_TLS, "poll_conn", None)
+    if conn is None:
+        conn = http.client.HTTPSConnection("api.telegram.org", timeout=40)
+        _TG_TLS.poll_conn = conn
+    return conn
+
+
+def call(method: str, _timeout=None, **params):
     """POST to the Bot API over a keep-alive connection (TLS handshake once)."""
     body = urllib.parse.urlencode(params)
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     for attempt in (1, 2):
         try:
-            conn = _tg_conn()
+            if method == "getUpdates" and _timeout is None:
+                conn = _tg_poll_conn()          # long-poll socket, higher timeout
+            else:
+                if _timeout is not None:
+                    _TG_TLS.conn = http.client.HTTPSConnection(
+                        "api.telegram.org", timeout=_timeout
+                    )                            # dedicated socket (uploads etc.)
+                conn = _tg_conn()
             conn.request("POST", f"/bot{TOKEN}/{method}", body=body, headers=headers)
             resp = conn.getresponse()
             payload = json.loads(resp.read().decode() or "{}")
@@ -325,6 +342,7 @@ def call(method: str, **params):
             except Exception:
                 pass
             _TG_TLS.conn = None
+            _TG_TLS.poll_conn = None
             if attempt == 2:
                 print(f"[warn] {method}: {exc}", flush=True)
                 return None
@@ -436,12 +454,13 @@ def offline_keyboard():
 def vpn_keyboard():
     def norm(s):
         return "".join(ch.lower() for ch in s if ch.isalnum())
-    offline_keys = {slug(n) for n, _w in OFFLINE_APPS} | {norm(n) for n, _w in OFFLINE_APPS}
+    off_names = {slug(n) for n, _w in OFFLINE_APPS} | {norm(n) for n, _w in OFFLINE_APPS}
     rows, row = [], []
     shown = 0
     for v in VPNS:
-        if v["key"] in offline_keys or norm(v["name"]) in offline_keys:  # only ACTIVE apps in the All VPN List
-        # skip offline apps
+        nv = norm(v["name"])
+        hit = any(nv in o or o in nv for o in off_names)
+        if v["key"] in off_names or hit:  # hide offline apps entirely
             continue
         shown += 1
         row.append({"text": "📡 " + v["name"], "callback_data": "vpn:" + v["key"]})
