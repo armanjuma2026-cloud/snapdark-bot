@@ -392,6 +392,39 @@ def send_document(chat_id, path, caption=None):
     return payload.get("result")
 
 
+OFFLINE_APPS = [
+    # (name, reason shown to users)  -- apps that cannot build a config now
+    ("WebTunnelMax", "Server keys rotated — fix in progress"),
+    ("Apka Tunnel", "New encrypted format — fix in progress"),
+    ("APNA SHIELD PRO", "Missing app bundle — fix in progress"),
+    ("Vip Snipher Pro", "Missing source URL — fix in progress"),
+    ("CloudV2ray", "Server host currently down"),
+    ("Great Tunnel", "Under maintenance"),
+    ("Lucky VIP Proxy", "Under maintenance"),
+    ("MM Tunnel", "Under maintenance"),
+    ("PTI Tunnel Pro", "Under maintenance"),
+    ("SA Tunnel", "Under maintenance"),
+    ("Solid Tunnel", "Under maintenance"),
+    ("VLX Tunnel", "Under maintenance"),
+    ("Custom Tunnel", "Under maintenance"),
+    ("FNF Tunnel BD", "Under maintenance"),
+    ("Http Custom", "Under maintenance"),
+    ("IPTunnel", "Under maintenance"),
+    ("PDirect", "Under maintenance"),
+    ("Proxy", "Under maintenance"),
+    ("PStunnel", "Under maintenance"),
+    ("SmartIP Tunnel", "Under maintenance"),
+    ("SnapDarkTunnel Backup", "Under maintenance"),
+]
+
+
+def offline_keyboard():
+    return {"inline_keyboard": [
+        [{"text": "📡 All VPN List", "callback_data": "all_vpn"}],
+        [{"text": "⬅️ Menu", "callback_data": "menu"}],
+    ]}
+
+
 def vpn_keyboard():
     rows, row = [], []
     for v in VPNS:
@@ -401,6 +434,7 @@ def vpn_keyboard():
             row = []
     if row:
         rows.append(row)
+    rows.append([{"text": "🚫 Offline VPN List", "callback_data": "offline_list"}])
     rows.append([{"text": "⬅️ Menu", "callback_data": "menu"}])
     return {"inline_keyboard": rows}
 
@@ -1824,6 +1858,18 @@ def handle_callback(cb):
     if data == "all_vpn":
         text += "\n\n👇 <b>Tap an app</b> to get its live config JSON."
         edit(chat_id, message_id, text, vpn_keyboard())
+        return
+    if data == "offline_list":
+        total = len(VPNS)
+        text = (
+            f"🚫 <b>Offline VPN List</b>\n"
+            f"{len(OFFLINE_APPS)} apps offline · "
+            f"{total - len(OFFLINE_APPS)} apps working now ✅\n\n"
+        )
+        for name, why in OFFLINE_APPS:
+            text += f"• 🔴 <b>{name}</b> — {why}\n"
+        text += "\n🛠 We are working on them — they come back automatically.\n"
+        edit(chat_id, message_id, text, offline_keyboard())
         return
     edit(chat_id, message_id, text, section_back_keyboard())
 

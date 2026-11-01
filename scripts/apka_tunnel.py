@@ -190,9 +190,27 @@ def main():
     time.sleep(0.5)
 
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36"}
-        response = requests.get(CONFIG_URL, headers=headers, timeout=30)
-        raw_data = response.text.strip()
+        headers = {"User-Agent": "okhttp/4.9.0"}
+        raw_data = ""
+        for attempt in range(1, 6):
+            try:
+                response = requests.get(CONFIG_URL, headers=headers, timeout=30)
+            except Exception as e:
+                print_c(f"[-] Fetch attempt {attempt} network error: {e}", C_RED)
+                time.sleep(10)
+                continue
+            body = response.text.strip()
+            if response.status_code == 200 and body.startswith("S1."):
+                raw_data = body
+                break
+            print_c(
+                f"[!] Attempt {attempt}: HTTP {response.status_code} (server rate-limit), waiting 20 s...",
+                C_YELLOW,
+            )
+            time.sleep(20)
+        if not raw_data:
+            print_c("[-] Server kept rate-limiting the app — try again a few minutes later.", C_RED)
+            return
     except Exception as e:
         print_c(f"[-] Failed to fetch config: {e}", C_RED)
         return

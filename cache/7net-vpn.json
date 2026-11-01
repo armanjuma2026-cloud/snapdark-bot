@@ -1,7 +1,7 @@
 {
   "CREDITS": "Decrypted By @SnapDark 🇧🇩 | Join channel: t.me/Jubairbro",
   "_source": "https://raw.githubusercontent.com/MAKE-MONEY-MILLION-DOLLAR-PER-DAY/7net-Team/refs/heads/main/7net%2BAll_Team.js",
-  "Version": "40.53",
+  "Version": "40.54",
   "Servers": [
     {
       "Name": "VIP 01",
@@ -995,8 +995,8 @@
     },
     {
       "Name": "🟢 Google Cloud Server 0️⃣1️⃣",
-      "ServerIPHost": "erwan1-70233545599.us-central1.run.app~erwan1-439768966829.us-central1.run.app",
-      "Subname": "Refresh ⏳ (4h) ⌛  تحديث🔃",
+      "ServerIPHost": "erwan1-154663453135.us-central1.run.app~carlos-311570262027.us-central1.run.app~carlos-348287735523.us-central1.run.app",
+      "Subname": "خادم غير محدود ⚡⚡⚡",
       "OpenVPNTCPPort": "1194",
       "OpenVPNSSLPort": "443",
       "Protocol": 0,
@@ -1014,7 +1014,7 @@
     {
       "Name": "🟢 Google Cloud Server 0️⃣2️⃣",
       "ServerIPHost": "carlos-616501661880.us-east4.run.app~gcperwan3.cloud.run",
-      "Subname": "Refresh ⏳ (4h) ⌛  تحديث🔃",
+      "Subname": "خادم غير محدود ⚡⚡⚡",
       "OpenVPNTCPPort": "1194",
       "OpenVPNSSLPort": "443",
       "Protocol": 0,
@@ -1031,8 +1031,8 @@
     },
     {
       "Name": "🟢 Google Cloud Server 0️⃣3️⃣",
-      "ServerIPHost": "gcperwan3.cloud.run~erwan1-154663453135.us-central1.run.app",
-      "Subname": "Refresh ⏳ (4h) ⌛  تحديث🔃",
+      "ServerIPHost": "erwan1-70233545599.us-central1.run.app~erwan1-439768966829.us-central1.run.app",
+      "Subname": "خادم غير محدود ⚡⚡⚡",
       "OpenVPNTCPPort": "1194",
       "OpenVPNSSLPort": "443",
       "Protocol": 0,
@@ -1046,6 +1046,42 @@
       "Password": "",
       "UseCustomCert": false,
       "CustomCert": "client\ndev tun\nproto tcp4-client\nport 443\nremote gcperwan2.cloud.run\ncipher none\nauth none\nauth-user-pass\nping-timer-rem\nredirect-gateway def1\nsetenv CLIENT_CERT 0\nverb 3\n<ca>\n-----BEGIN CERTIFICATE-----\nMIICMTCCAZqgAwIBAgIUAaQBApMS2dYBqYPcA3Pa7cjjw7cwDQYJKoZIhvcNAQEL\nBQAwDzENMAsGA1UEAwwES29iWjAeFw0yMDA3MjIyMjIzMzNaFw0zMDA3MjAyMjIz\nMzNaMA8xDTALBgNVBAMMBEtvYlowgZ8wDQYJKoZIhvcNAQEBBQADgY0AMIGJAoGB\nAMF46UVi2O5pZpddOPyzU2EyIrr8NrpXqs8BlYhUjxOcCrkMjFu2G9hk7QIZ4qO0\nGWVZpPhYk5qWk+LxCsryrSoe0a5HaqIye8BFJmXV0k+O/3e6k06UGNii3gxBWQpF\n7r/2CyQLus9OSpQPYszByBvtkwiBAo/V98jdpm+EVu6tAgMBAAGjgYkwgYYwHQYD\nVR0OBBYEFGRJMm/+ZmLxV027kahdvSY+UaTSMEoGA1UdIwRDMEGAFGRJMm/+ZmLx\nV027kahdvSY+UaTSoROkETAPMQ0wCwYDVQQDDARLb2JaghQBpAECkxLZ1gGpg9wD\nc9rtyOPDtzAMBgNVHRMEBTADAQH/MAsGA1UdDwQEAwIBBjANBgkqhkiG9w0BAQsF\nAAOBgQC0f8wb5hyEOEEX64l8QCNpyd/WLjoeE5bE+xnIcKE+XpEoDRZwugLoyQdc\nHKa3aRHNqKpR7H696XJReo4+pocDeyj7rATbO5dZmSMNmMzbsjQeXux0XjwmZIHu\neDKMefDi0ZfiZmnU2njmTncyZKxv18Ikjws0Myc8PtAxy2qdcA==\n-----END CERTIFICATE-----\n</ca>"
+    },
+    {
+      "Name": "🟢 Google Cloud Server 0️⃣4️⃣",
+      "ServerIPHost": "erwan1-154663453135.us-central1.run.app~carlos-311570262027.us-central1.run.app~carlos-348287735523.us-central1.run.app",
+      "Subname": "خادم غير محدود ⚡⚡⚡",
+      "OpenVPNTCPPort": "1194",
+      "OpenVPNSSLPort": "443",
+      "Protocol": 0,
+      "CloudfrontDNS": "",
+      "ServerHTTP": "",
+      "flag": "it",
+      "UDPMode": 0,
+      "Obfs": "",
+      "UdpAuthMode": 0,
+      "Username": "",
+      "Password": "",
+      "UseCustomCert": false,
+      "CustomCert": ""
+    },
+    {
+      "Name": "🟢 Google Cloud Server 0️⃣5️⃣",
+      "ServerIPHost": "erwan1-154663453135.us-central1.run.app~carlos-311570262027.us-central1.run.app~carlos-348287735523.us-central1.run.app~carlos-616501661880.us-east4.run.app~gcperwan3.cloud.run",
+      "Subname": "خادم غير محدود ⚡⚡⚡",
+      "OpenVPNTCPPort": "1194",
+      "OpenVPNSSLPort": "443",
+      "Protocol": 0,
+      "CloudfrontDNS": "",
+      "ServerHTTP": "",
+      "flag": "fi",
+      "UDPMode": 0,
+      "Obfs": "",
+      "UdpAuthMode": 0,
+      "Username": "",
+      "Password": "",
+      "UseCustomCert": false,
+      "CustomCert": ""
     },
     {
       "Name": "SSH Websocket 0️⃣1️⃣ (GCP)",

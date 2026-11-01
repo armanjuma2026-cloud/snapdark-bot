@@ -1,9 +1,9 @@
-[1/48] 7NET VPN ... OK 494KB 7NET VPN ☠️.json
+[1/48] 7NET VPN ... OK 496KB 7NET VPN ☠️.json
 [2/48] apka_tunnel ... ran but no new JSON
 [3/48] APNA SHIELD PRO ... FAIL rc=2
 [4/48] APNA VPN ... OK 286KB APNA VPN ☠️.json
 [5/48] APX Tunnel ... OK 784KB APX Tunnel VPN ☠️.json
-[6/48] Bangladesh VPN ... ran but no new JSON
+[6/48] Bangladesh VPN ... OK 13KB Bangladesh VPN ☠️.json
 [7/48] BD PRO VPN ... OK 3KB BD PRO VPN ☠️.json
 [8/48] Boltnet VPN ... OK 34KB Boltnet VPN ☠️.json
 [9/48] BONDHU VIP ... OK 18KB BONDHU VIP ☠️.json
@@ -14,4 +14,26 @@
 [14/48] Der Tunnel ... OK 413KB Der Tunnel VPN ☠️.json
 [15/48] FNF TUNNEL BD ... ran but no new JSON
 [16/48] Good Tunnel ... OK 22KB Good Tunnel VPN ☠️.json
-[17/48] Great Tunnel ... 
+[17/48] Great Tunnel ... TIMEOUT (>90s, likely hangs)
+[18/48] HANA PRO VPN ... OK 186KB HANA PRO VPN ☠️.json
+[19/48] Http Custom ... FAIL rc=1
+[20/48] IPTunnel ... ran but no new JSON
+[21/48] Jas Tunnel ... OK 49KB Jas Tunnel ☠️.json
+[22/48] Lucky VIP Proxy ... TIMEOUT (>90s, likely hangs)
+[23/48] MM Tunnel ... TIMEOUT (>90s, likely hangs)
+[24/48] MNR TUNNEL PLUS ... OK 82KB MNR TUNNEL PLUS VPN ☠️.json
+[25/48] MNR TUNNEL PRO ... OK 30KB MNR TUNNEL PRO VPN ☠️.json
+[26/48] NDK VPN ... OK 0KB NDK VPN ☠️.json
+[27/48] Nova Tunnel Plus ... OK 0KB Nova Tunnel Plus ☠️.json
+[28/48] Omega Tunnel ... OK 13KB Omega Tunnel VPN ☠️.json
+[29/48] PDirect ... FAIL rc=1
+[30/48] PingTunnel VPN ... OK 0KB PingTunnel VPN ☠️.json
+[31/48] Proxy ... FAIL rc=1
+[32/48] PStunnel ... FAIL rc=1
+[33/48] PTI TUNNEL PRO ... TIMEOUT (>90s, likely hangs)
+[34/48] Pw Tunnel Plus ... OK 0KB Pw Tunnel Plus ☠️.json
+[35/48] Raja Boss V2ray ... OK 52KB Raja Boss V2ray ☠️.json
+[36/48] RMP TUNNEL PRO ... OK 650KB RMP TUNNEL PRO VPN ☠️.json
+[37/48] SA tunnel ... TIMEOUT (>90s, likely hangs)
+[38/48] SC Tunnel ... OK 0KB SC Tunnel ☠️.json
+[39/48] SenseiTunnel ... 
