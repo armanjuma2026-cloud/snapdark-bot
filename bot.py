@@ -425,7 +425,6 @@ OFFLINE_APPS = [
     ("Lucky VIP Proxy", "Under maintenance"),
     ("MM Tunnel", "Under maintenance"),
     ("PTI Tunnel Pro", "Under maintenance"),
-    ("SA Tunnel", "Under maintenance"),
     ("Solid Tunnel", "Under maintenance"),
     ("VLX Tunnel", "Under maintenance"),
     ("Custom Tunnel", "Under maintenance"),
