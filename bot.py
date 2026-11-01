@@ -186,6 +186,7 @@ PENDING_SUB = {}   # admin uid -> {"action": ..., "plan": ...}
 PENDING_ACCEPT = {}  # admin uid -> user id whose token was just entered
 
 EX_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=4)  # keeps taps responsive
+BUILD_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=3)  # heavy app builds
 
 HELP_MODE = set()   # user ids currently chatting directly with the admin
 RELAY_MAP = {}      # admin chat message_id -> user id (to route admin replies)
@@ -1390,6 +1391,10 @@ def handle_callback(cb):
     if chat_id is None:
         call("answerCallbackQuery", callback_query_id=cb["id"])
         return
+    if not (data.startswith("adm:") or data.startswith("off:")
+            or data in ("mytoken", "help_write")):
+        # fire the spinner drop instantly; every later edit still shows on screen
+        call("answerCallbackQuery", callback_query_id=cb["id"])
 
     # ---- admin panel routes
     if data.startswith("adm:"):
@@ -2046,7 +2051,11 @@ def main():
             if upd.get("message") or upd.get("channel_post"):
                 EX_POOL.submit(handle_message, upd.get("message") or upd.get("channel_post"))
             elif upd.get("callback_query"):
-                EX_POOL.submit(handle_callback, upd["callback_query"])
+                qb = upd["callback_query"]
+                if (qb.get("data") or "").startswith("vpn:"):
+                    BUILD_POOL.submit(handle_callback, qb)
+                else:
+                    EX_POOL.submit(handle_callback, qb)
 
 
 if __name__ == "__main__":
