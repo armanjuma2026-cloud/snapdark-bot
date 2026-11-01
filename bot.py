@@ -185,6 +185,7 @@ PENDING_EDIT = {}  # admin uid -> section key
 PENDING_SUB = {}   # admin uid -> {"action": ..., "plan": ...}
 PENDING_ACCEPT = {}  # admin uid -> user id whose token was just entered
 
+SLOW_BUILDS = {"sa-tunnel": 300, "pti-tunnel-pro": 300}  # work, just slow
 EX_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=4)  # keeps taps responsive
 BUILD_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=3)  # heavy app builds
 
@@ -566,7 +567,7 @@ def refresh_build(key):
                 cwd=base,
                 capture_output=True,
                 stdin=subprocess.DEVNULL,
-                timeout=120,
+                timeout=SLOW_BUILDS.get(key, 120),
             )
         except Exception as exc:
             print(f"[refresh] {key} error: {exc}", flush=True)
@@ -635,7 +636,7 @@ def build_vpn(chat_id, key):
                     cwd=base,
                     capture_output=True,
                     stdin=subprocess.DEVNULL,
-                    timeout=120,
+                    timeout=SLOW_BUILDS.get(key, 120),
                 )
                 out_txt = (proc.stdout or b"").decode(errors="replace").strip().splitlines()[-2:]
                 err_txt = (proc.stderr or b"").decode(errors="replace").strip().splitlines()[-2:]
