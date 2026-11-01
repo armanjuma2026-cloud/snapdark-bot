@@ -435,6 +435,7 @@ OFFLINE_APPS = [
     ("Proxy", "Under maintenance"),
     ("PStunnel", "Under maintenance"),
     ("SmartIP Tunnel", "Under maintenance"),
+    ("Pw Tunnel Plus", "App imports profiles only — no server config"),
     ("SnapDarkTunnel Backup", "Under maintenance"),
 ]
 
