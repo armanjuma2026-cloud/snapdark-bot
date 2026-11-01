@@ -434,15 +434,23 @@ def offline_keyboard():
 
 
 def vpn_keyboard():
+    def norm(s):
+        return "".join(ch.lower() for ch in s if ch.isalnum())
+    offline_keys = {slug(n) for n, _w in OFFLINE_APPS} | {norm(n) for n, _w in OFFLINE_APPS}
     rows, row = [], []
+    shown = 0
     for v in VPNS:
+        if v["key"] in offline_keys or norm(v["name"]) in offline_keys:  # only ACTIVE apps in the All VPN List
+        # skip offline apps
+            continue
+        shown += 1
         row.append({"text": "📡 " + v["name"], "callback_data": "vpn:" + v["key"]})
         if len(row) == 2:
             rows.append(row)
             row = []
     if row:
         rows.append(row)
-    rows.append([{"text": "🚫 Offline VPN List", "callback_data": "offline_list"}])
+    rows.append([{"text": f"🚫 Offline VPN List ({len(OFFLINE_APPS)})", "callback_data": "offline_list"}])
     rows.append([{"text": "⬅️ Menu", "callback_data": "menu"}])
     return {"inline_keyboard": rows}
 
