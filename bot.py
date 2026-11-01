@@ -420,10 +420,16 @@ OFFLINE_APPS = [
 
 
 def offline_keyboard():
-    return {"inline_keyboard": [
-        [{"text": "📡 All VPN List", "callback_data": "all_vpn"}],
-        [{"text": "⬅️ Menu", "callback_data": "menu"}],
-    ]}
+    rows, row = [], []
+    for name, _why in OFFLINE_APPS:
+        row.append({"text": "🔴 " + name, "callback_data": "off:" + slug(name)})
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([{"text": "⬅️ Menu", "callback_data": "menu"}])
+    return {"inline_keyboard": rows}
 
 
 def vpn_keyboard():
@@ -1765,6 +1771,20 @@ def handle_callback(cb):
             return
         call("answerCallbackQuery", callback_query_id=cb["id"])
         edit(chat_id, message_id, WELCOME, main_keyboard(user_id))
+        return
+
+    if data.startswith("off:"):
+        key = data[4:]
+        name = next(
+            (n for n, _w in OFFLINE_APPS if slug(n) == key), key
+        )
+        why = next((w for n, w in OFFLINE_APPS if slug(n) == key), "Under maintenance")
+        call(
+            "answerCallbackQuery",
+            callback_query_id=cb["id"],
+            text=f"🚫 {name}: {why}",
+            show_alert=True,
+        )
         return
 
     if data == "help_write":
